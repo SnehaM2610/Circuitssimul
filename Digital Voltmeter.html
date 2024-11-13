@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battery Voltage Measurement Simulation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            height: 100vh;
+        }
+
+        header {
+            background: #35424a;
+            color: #ffffff;
+            padding: 10px 0;
+            text-align: center;
+            width: 100%;
+        }
+
+        #explanation {
+            margin: 10px 0;
+            color: #ffffff;
+            font-size: 14px;
+            text-align: center;
+            width: 80%;
+            background-color: #333;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+        }
+
+        #simulation-area {
+            display: flex;
+            align-items: center;
+            padding: 20px;
+            width: 90%;
+            height: 100%;
+            justify-content: space-around;
+        }
+
+        #batteries {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            flex: 1;
+            align-items: flex-start;
+        }
+
+        .battery {
+            width: 60px;
+            height: 120px;
+            border: 2px solid #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background-color: #555;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .battery-terminal {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: grab;
+        }
+
+        .positive {
+            background-color: red;
+        }
+
+        .negative {
+            background-color: black;
+        }
+
+        #voltmeter {
+            width: 200px;
+            height: 250px;
+            padding: 10px;
+            border: 2px solid #333;
+            background-color: yellow;
+            text-align: center;
+            color: red;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            margin-left: 5cm;
+        }
+
+        #voltmeter h2 {
+            margin-top: 0;
+        }
+
+        .voltage-reading {
+            width: 100%;
+            height: 50px;
+            background-color: white;
+            border: 2px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: black;
+            margin-top: 10px;
+        }
+
+        .probe {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            cursor: grab;
+            position: absolute;
+        }
+
+        #red-probe {
+            background-color: red;
+            bottom: 10px;
+            left: 40px;
+        }
+
+        #black-probe {
+            background-color: black;
+            bottom: 10px;
+            right: 40px;
+        }
+
+        .dotted-line {
+            position: absolute;
+            width: 2px;
+            border-style: dashed;
+            border-color: transparent;
+            transform-origin: top;
+            display: none;
+            z-index: -1;
+        }
+
+        .battery p {
+            color: white;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Voltage Measurement Using Voltmeter</h1>
+        <p>Drag the red and black voltmeter probes to measure the voltage across the battery terminals.</p>
+    </header>
+
+    <main>
+        <div id="explanation"></div>
+        <section id="simulation-area">
+            <div id="batteries">
+                <div class="battery" data-voltage="1.5">
+                    <div class="battery-terminal positive" data-terminal="positive"></div>
+                    <p>1.5V</p>
+                    <div class="battery-terminal negative" data-terminal="negative"></div>
+                </div>
+                <div class="battery" data-voltage="3">
+                    <div class="battery-terminal positive" data-terminal="positive"></div>
+                    <p>3V</p>
+                    <div class="battery-terminal negative" data-terminal="negative"></div>
+                </div>
+                <div class="battery" data-voltage="5">
+                    <div class="battery-terminal positive" data-terminal="positive"></div>
+                    <p>5V</p>
+                    <div class="battery-terminal negative" data-terminal="negative"></div>
+                </div>
+                <div class="battery" data-voltage="9">
+                    <div class="battery-terminal positive" data-terminal="positive"></div>
+                    <p>9V</p>
+                    <div class="battery-terminal negative" data-terminal="negative"></div>
+                </div>
+            </div>
+
+            <div id="voltmeter">
+                <h2>Digital Voltmeter</h2>
+                <div class="voltage-reading" id="voltage-reading">0 V</div>
+                <div class="probe" id="red-probe" draggable="true" ondragstart="drag(event)" data-wire="red"></div>
+                <div class="probe" id="black-probe" draggable="true" ondragstart="drag(event)" data-wire="black"></div>
+                <div class="dotted-line" id="dotted-line-red"></div>
+                <div class="dotted-line" id="dotted-line-black"></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let redProbeConnection = null;
+        let blackProbeConnection = null;
+        let redProbePos = { x: 0, y: 0 };
+        let blackProbePos = { x: 0, y: 0 };
+
+        function drag(event) {
+            event.dataTransfer.setData("wire", event.target.id);
+            clearDottedLines();
+            updateDottedLine(event.target);
+            document.addEventListener('mousemove', trackDottedLine);
+            document.addEventListener('dragend', () => {
+                document.removeEventListener('mousemove', trackDottedLine);
+                clearDottedLines();
+            });
+        }
+
+        document.querySelectorAll('.battery-terminal').forEach(terminal => {
+            terminal.addEventListener('dragover', event => event.preventDefault());
+            terminal.addEventListener('drop', event => drop(event, terminal));
+        });
+
+        function drop(event, terminal) {
+            event.preventDefault();
+            const wireId = event.dataTransfer.getData("wire");
+            const wire = document.getElementById(wireId);
+
+            if (wireId === 'red-probe') {
+                redProbeConnection = terminal;
+                drawDottedLine(wire, terminal, 'dotted-line-red', 'red', redProbePos);
+            } else if (wireId === 'black-probe') {
+                blackProbeConnection = terminal;
+                drawDottedLine(wire, terminal, 'dotted-line-black', 'black', blackProbePos);
+            }
+
+            calculateVoltage();
+        }
+
+        function calculateVoltage() {
+            if (redProbeConnection && blackProbeConnection) {
+                const redBattery = redProbeConnection.closest('.battery');
+                const blackBattery = blackProbeConnection.closest('.battery');
+
+                if (redBattery === blackBattery) {
+                    const voltage = parseFloat(redBattery.dataset.voltage);
+                    const positiveConnection = redProbeConnection.dataset.terminal === 'positive' && blackProbeConnection.dataset.terminal === 'negative';
+                    const negativeConnection = redProbeConnection.dataset.terminal === 'negative' && blackProbeConnection.dataset.terminal === 'positive';
+
+                    if (positiveConnection) {
+                        document.getElementById('voltage-reading').innerText = `${voltage.toFixed(2)} V`;
+                        document.getElementById('explanation').innerText = `Positive connection measured: ${voltage.toFixed(2)} V.`;
+                    } else if (negativeConnection) {
+                        document.getElementById('voltage-reading').innerText = `-${voltage.toFixed(2)} V`;
+                        document.getElementById('explanation').innerText = `Negative connection measured: -${voltage.toFixed(2)} V. This indicates a reverse connection.`;
+                    } else {
+                        document.getElementById('voltage-reading').innerText = "0 V";
+                        document.getElementById('explanation').innerText = "Invalid connection detected. Ensure the probes are correctly placed.";
+                    }
+                } else {
+                    document.getElementById('voltage-reading').innerText = "0 V";
+                    document.getElementById('explanation').innerText = "Probes connected to different batteries. Ensure they are connected to the same battery.";
+                }
+            } else {
+                document.getElementById('voltage-reading').innerText = "0 V";
+                document.getElementById('explanation').innerText = "Connect both probes to terminals.";
+            }
+        }
+
+        function drawDottedLine(wire, terminal, lineId, color) {
+            const dottedLine = document.getElementById(lineId);
+            dottedLine.style.display = 'block';
+            dottedLine.style.borderColor = color;
+
+            // Get the center positions of the wire (probe) and terminal
+            const wireRect = wire.getBoundingClientRect();
+            const terminalRect = terminal.getBoundingClientRect();
+
+            // Calculate the starting and ending points for the dotted line
+            const startX = wireRect.left + wireRect.width / 2;
+            const startY = wireRect.top + wireRect.height / 2;
+            const endX = terminalRect.left + terminalRect.width / 2;
+            const endY = terminalRect.top + terminalRect.height / 2;
+
+            // Set the position and size of the dotted line
+            dottedLine.style.left = `${startX}px`;
+            dottedLine.style.top = `${startY}px`;
+            
+            // Calculate the length and angle of the line
+            const length = Math.sqrt((endX - startX) ** 2 + (endY - startY) ** 2);
+            dottedLine.style.height = `${length}px`;
+            dottedLine.style.transform = `rotate(${Math.atan2(endY - startY, endX - startX) * 180 / Math.PI}deg)`;
+            
+            // Position the line halfway between the start and end points
+            dottedLine.style.transformOrigin = '0 0'; // Set the origin to the start point
+        }
+
+        function trackDottedLine(event) {
+            const wireId = event.dataTransfer.getData("wire");
+            const wire = document.getElementById(wireId);
+            if (wire) {
+                if (wireId === 'red-probe') {
+                    redProbePos.x = event.clientX;
+                    redProbePos.y = event.clientY;
+                    updateDottedLine(wire);
+                } else if (wireId === 'black-probe') {
+                    blackProbePos.x = event.clientX;
+                    blackProbePos.y = event.clientY;
+                    updateDottedLine(wire);
+                }
+            }
+        }
+
+        function updateDottedLine(wire) {
+            if (redProbeConnection) {
+                drawDottedLine(wire, redProbeConnection, 'dotted-line-red', 'red');
+            }
+            if (blackProbeConnection) {
+                drawDottedLine(wire, blackProbeConnection, 'dotted-line-black', 'black');
+            }
+        }
+
+        function clearDottedLines() {
+            const dottedLines = document.querySelectorAll('.dotted-line');
+            dottedLines.forEach(line => {
+                line.style.display = 'none';
+            });
+        }
+    </script>
+</body>
+</html>
