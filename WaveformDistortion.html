@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waveform Distortion Simulation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212; /* Dark background */
+            color: #ffffff; /* White text */
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: 20px;
+        }
+        .controls {
+            flex: 0 0 300px; /* Fixed width for control panel */
+            background-color: #1e1e1e; /* Darker control panel */
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start; /* Align waveforms to the left */
+            margin-left: 80px; /* Increased margin to shift waveforms further to the right */
+            margin-top: 0px; /* Increased margin for space between controls and waveforms */
+        }
+        canvas {
+            border: 1px solid #ccc;
+            background: #1e1e1e; /* Dark background for canvas */
+            margin: 10px 0; /* Space between canvases */
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        }
+        h1, h3 {
+            color: #00bcd4; /* Bright blue for headings */
+        }
+        input[type="range"] {
+            width: 90%;
+            margin: 10px 0;
+            background-color: #555;
+            border-radius: 5px;
+            border: none;
+        }
+        span {
+            white-space: nowrap; /* Prevent wrapping of units */
+        }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+            background-color: #00bcd4; /* Bright blue for buttons */
+            border: none;
+            color: white;
+            border-radius: 5px;
+            display: block; /* Align buttons vertically */
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0097a7; /* Darker blue on hover */
+        }
+        #explanationBox {
+            width: 300px; /* Fixed width */
+            margin: 40px auto; /* Reduced margin to move closer to waveforms */
+            padding: 10px;
+            background-color: #f9f9f9; /* Light background for explanation */
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+            color: #333; /* Dark text color for contrast */
+            text-align: center; /* Center text */
+        }
+        .explanation-header {
+            font-weight: bold; /* Make the header bold */
+            font-size: 1.2em; /* Increase font size */
+            color: #00796b; /* Dark teal for header */
+            margin-bottom: 5px; /* Space below header */
+        }
+        #explanation {
+            overflow-wrap: break-word; /* Wrap text to fit within fixed dimensions */
+            width: 100%;
+        }
+        #comparisonContainer {
+            display: none; /* Initially hidden */
+            flex-direction: column;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <h1>Waveform Distortion Simulation</h1>
+    
+    <h3>Input Signal Frequency (Hz)</h3>
+    <input type="range" id="inputFrequency" min="1" max="20" value="5">
+    <span id="frequencyValue">5 Hz</span>
+
+    <h3>Attenuation Factor</h3>
+    <input type="range" id="attenuation" min="1" max="10" value="1" step="0.1">
+    <span id="attenuationValue">1</span>
+
+    <h3>Delay Factor (ms)</h3>
+    <input type="range" id="delay" min="0" max="100" value="0" step="1">
+    <span id="delayValue">0 ms</span>
+
+    <br>
+    <button id="toggleAnimationBtn">Stop Animation</button>
+    <button id="compareBtn">Compare Input & Output</button>
+    <button id="resetBtn">Reset</button>
+</div>
+
+<div class="canvas-container">
+    <h3>Input Signal</h3>
+    <canvas id="inputSignalCanvas" width="600" height="200"></canvas>
+    
+    <h3>Output Signal After Transmission</h3>
+    <canvas id="outputSignalCanvas" width="600" height="200"></canvas>
+    
+    <div id="comparisonContainer">
+        <h3>Comparison of Input & Output Signals</h3>
+        <canvas id="comparisonCanvas" width="600" height="200"></canvas>
+    </div>
+</div>
+
+<div id="explanationBox">
+    <div class="explanation-header">Note</div> <!-- Attention-grabbing header -->
+    <div id="explanation"></div> <!-- Explanation in a separate box -->
+</div>
+
+<script>
+    const inputCanvas = document.getElementById('inputSignalCanvas');
+    const outputCanvas = document.getElementById('outputSignalCanvas');
+    const comparisonCanvas = document.getElementById('comparisonCanvas');
+    const inputCtx = inputCanvas.getContext('2d');
+    const outputCtx = outputCanvas.getContext('2d');
+    const comparisonCtx = comparisonCanvas.getContext('2d');
+
+    const inputFrequencySlider = document.getElementById('inputFrequency');
+    const attenuationSlider = document.getElementById('attenuation');
+    const delaySlider = document.getElementById('delay');
+
+    const frequencyValue = document.getElementById('frequencyValue');
+    const attenuationValue = document.getElementById('attenuationValue');
+    const delayValue = document.getElementById('delayValue');
+
+    const explanationDiv = document.getElementById('explanation');
+    const comparisonContainer = document.getElementById('comparisonContainer');
+    const toggleAnimationBtn = document.getElementById('toggleAnimationBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    let animationId;
+    let comparisonAnimationId;
+    let time = 0;
+    let isAnimating = false;
+    let isComparing = false;
+
+    function drawSignal(ctx, frequency, attenuation, delay, color) {
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.beginPath();
+        
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        const amplitude = height / 3; // Adjusted amplitude for better visibility
+        const phaseShift = (delay / 1000) * frequency * Math.PI * 2;
+
+        for (let x = 0; x < width; x++) {
+            const t = (x / width) * 2 * Math.PI * frequency + phaseShift + time;
+            const y = (height / 2) + amplitude * Math.sin(t) / attenuation; // Adjusting for attenuation
+            ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    function updateValues() {
+        frequencyValue.textContent = `${inputFrequencySlider.value} Hz`;
+        attenuationValue.textContent = attenuationSlider.value;
+        delayValue.textContent = `${delaySlider.value} ms`;
+        
+        // Update explanation
+        let explanation = "";
+        const frequency = parseFloat(inputFrequencySlider.value);
+        const attenuation = parseFloat(attenuationSlider.value);
+        const delay = parseFloat(delaySlider.value);
+
+        if (attenuation > 1) {
+            explanation += "Increased attenuation reduces signal amplitude, causing frequency distortion. ";
+        }
+        if (delay > 0) {
+            explanation += "Delay introduces a phase shift, altering the timing of the signal and causing phase distortion. ";
+        }
+
+        explanationDiv.textContent = explanation || "No distortion: Ideal transmission.";
+        
+        if (!isAnimating) {
+            isAnimating = true;
+            animate();
+        }
+    }
+
+    function animate() {
+        time += 0.1;
+        drawSignal(inputCtx, inputFrequencySlider.value, 1, 0, '#5cb85c'); // Input signal (green)
+        drawSignal(outputCtx, inputFrequencySlider.value, attenuationSlider.value, delaySlider.value, '#d9534f'); // Output signal (red)
+        animationId = requestAnimationFrame(animate);
+    }
+
+    function animateComparison() {
+        comparisonCtx.clearRect(0, 0, comparisonCtx.canvas.width, comparisonCtx.canvas.height);
+        
+        const width = comparisonCtx.canvas.width;
+        const height = comparisonCtx.canvas.height;
+        const amplitude = height / 3; // Adjusted amplitude for better visibility
+
+        // Draw Input Signal
+        comparisonCtx.beginPath();
+        for (let x = 0; x < width; x++) {
+            const t = (x / width) * 2 * Math.PI * inputFrequencySlider.value + time;
+            const y = (height / 2) + amplitude * Math.sin(t);
+            comparisonCtx.lineTo(x, y);
+        }
+        comparisonCtx.strokeStyle = '#5cb85c'; // Input signal (green)
+        comparisonCtx.lineWidth = 2;
+        comparisonCtx.stroke();
+
+        // Draw Output Signal
+        comparisonCtx.beginPath();
+        for (let x = 0; x < width; x++) {
+            const t = (x / width) * 2 * Math.PI * inputFrequencySlider.value + (delaySlider.value / 1000) * inputFrequencySlider.value * Math.PI * 2 + time;
+            const y = (height / 2) + amplitude * Math.sin(t) / attenuationSlider.value;
+            comparisonCtx.lineTo(x, y);
+        }
+        comparisonCtx.strokeStyle = '#d9534f'; // Output signal (red)
+        comparisonCtx.lineWidth = 2;
+        comparisonCtx.stroke();
+
+        comparisonAnimationId = requestAnimationFrame(animateComparison);
+    }
+
+    function reset() {
+        inputFrequencySlider.value = 5;
+        attenuationSlider.value = 1;
+        delaySlider.value = 0;
+        updateValues();
+        cancelAnimationFrame(animationId);
+        cancelAnimationFrame(comparisonAnimationId);
+        isAnimating = false;
+        isComparing = false;
+        comparisonContainer.style.display = 'none';
+    }
+
+    inputFrequencySlider.addEventListener('input', updateValues);
+    attenuationSlider.addEventListener('input', updateValues);
+    delaySlider.addEventListener('input', updateValues);
+
+    toggleAnimationBtn.addEventListener('click', () => {
+        if (isAnimating) {
+            cancelAnimationFrame(animationId);
+            isAnimating = false;
+            toggleAnimationBtn.textContent = 'Start Animation';
+        } else {
+            animate();
+            toggleAnimationBtn.textContent = 'Stop Animation';
+        }
+    });
+
+    document.getElementById('compareBtn').addEventListener('click', () => {
+        if (!isComparing) {
+            comparisonContainer.style.display = 'flex';
+            animateComparison();
+            isComparing = true;
+        } else {
+            cancelAnimationFrame(comparisonAnimationId);
+            isComparing = false;
+            comparisonContainer.style.display = 'none';
+        }
+    });
+
+    resetBtn.addEventListener('click', reset);
+
+    // Initialize values
+    updateValues();
+</script>
+</body>
+</html>
