@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Purification Adventure</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            font-size: 2rem;
+            color: #0077be;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        p {
+            font-size: 1rem;
+            color: #555;
+            margin-bottom: 20px;
+        }
+
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        #placeholders {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            flex: 1;
+            min-width: 300px;
+        }
+
+        #source {
+            background: linear-gradient(to bottom, #00aaff, #0077be);
+            color: white;
+            padding: 15px;
+            border: 2px solid black;
+            width: 100%;
+            max-width: 300px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        .placeholder {
+            width: 100%;
+            max-width: 300px;
+            height: 60px;
+            border: 2px dashed gray;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        .placeholder::after {
+            content: "↓";
+            font-size: 1.5rem;
+            color: gray;
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .placeholder:last-child::after {
+            content: "";
+        }
+
+        #stages {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex: 1;
+            min-width: 300px;
+            margin-top: 20px;
+            box-sizing: border-box;
+        }
+
+        .stage {
+            background-color: #ffcccb;
+            padding: 15px;
+            border: 2px solid black;
+            width: 100%;
+            max-width: 300px;
+            margin: auto;
+            cursor: grab;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        .dragging {
+            opacity: 0.5;
+        }
+
+        #message {
+            margin-top: 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        #popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border: 2px solid black;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+        }
+
+        #popup button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 1rem;
+        }
+
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 999;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            p {
+                font-size: 0.9rem;
+            }
+
+            .placeholder,
+            .stage {
+                max-width: 250px;
+            }
+
+            #source {
+                max-width: 250px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 1.2rem;
+            }
+
+            p {
+                font-size: 0.8rem;
+            }
+
+            .placeholder,
+            .stage {
+                max-width: 200px;
+            }
+
+            #source {
+                max-width: 200px;
+            }
+
+            button {
+                font-size: 0.9rem;
+                padding: 8px 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Let’s Purify Some H<sub>2</sub>O!</h1>
+    <p>Drag and drop the blocks in the placeholders to arrange the order of water purification stages.</p>
+    <div class="container">
+        <div id="placeholders">
+            <div id="source" class="placeholder" data-step="0">Source of Water</div>
+            <div class="placeholder" data-step="1"></div>
+            <div class="placeholder" data-step="2"></div>
+            <div class="placeholder" data-step="3"></div>
+            <div class="placeholder" data-step="4"></div>
+            <div class="placeholder" data-step="5"></div>
+            <div class="placeholder" data-step="6"></div>
+        </div>
+    </div>
+    <div id="stages">
+        <div class="stage" draggable="true" data-step="1">Screening</div>
+        <div class="stage" draggable="true" data-step="2">Aeration</div>
+        <div class="stage" draggable="true" data-step="3">Sedimentation</div>
+        <div class="stage" draggable="true" data-step="4">Coagulation</div>
+        <div class="stage" draggable="true" data-step="5">Filtration</div>
+        <div class="stage" draggable="true" data-step="6">Disinfection/Sterilization</div>
+    </div>
+    <div id="message"></div>
+    <div id="overlay"></div>
+    <div id="popup">
+        <p id="popup-message"></p>
+        <button onclick="closePopup()">Close</button>
+    </div>
+
+    <script>
+        const placeholders = document.querySelectorAll('.placeholder');
+        const stages = document.querySelectorAll('.stage');
+        const message = document.getElementById('message');
+        const popup = document.getElementById('popup');
+        const overlay = document.getElementById('overlay');
+        const popupMessage = document.getElementById('popup-message');
+        const correctOrder = ["1", "2", "3", "4", "5", "6"];
+        let chances = 3;
+        let isGameOver = false;
+
+        stages.forEach(stage => {
+            stage.addEventListener('dragstart', (e) => {
+                if (isGameOver) return;
+                e.dataTransfer.setData('text/plain', e.target.dataset.step);
+                stage.classList.add('dragging');
+            });
+
+            stage.addEventListener('dragend', () => {
+                stage.classList.remove('dragging');
+            });
+        });
+
+        placeholders.forEach(placeholder => {
+            placeholder.addEventListener('dragover', (e) => {
+                if (isGameOver || placeholder.id === "source") {
+                    e.preventDefault();
+                    return;
+                }
+                e.preventDefault();
+            });
+
+            placeholder.addEventListener('drop', (e) => {
+                if (isGameOver || placeholder.id === "source") return;
+
+                e.preventDefault();
+                const step = e.dataTransfer.getData('text/plain');
+                const draggedElement = document.querySelector(`.stage[data-step="${step}"]`);
+                if (placeholder.children.length === 0) {
+                    placeholder.appendChild(draggedElement);
+                } else {
+                    const existingChild = placeholder.children[0];
+                    const sourceParent = draggedElement.parentElement;
+                    sourceParent.appendChild(existingChild);
+                    placeholder.appendChild(draggedElement);
+                }
+            });
+        });
+
+        function checkOrder() {
+            const userOrder = Array.from(placeholders)
+                .filter(p => p.dataset.step !== "0")
+                .map(p => p.children[0]?.dataset.step || null);
+
+            if (JSON.stringify(userOrder) === JSON.stringify(correctOrder)) {
+                message.textContent = "Congratulations! You arranged the steps correctly!";
+                message.style.color = "green";
+                disableInteractions();
+                showResetButton();
+            } else if (chances > 1) {
+                chances--;
+                message.textContent = `Incorrect! You have ${chances} chance(s) left. Rearrange the blocks.`;
+                message.style.color = "red";
+            } else {
+                message.textContent = "No chances left!";
+                showPopup();
+                disableInteractions();
+                showResetButton();
+            }
+        }
+
+        function showPopup() {
+            overlay.style.display = "block";
+            popup.style.display = "block";
+            popupMessage.textContent = `The correct order is: Screening → Aeration → Sedimentation → Coagulation → Filtration → Disinfection/Sterilization.`;
+        }
+
+        function closePopup() {
+            overlay.style.display = "none";
+            popup.style.display = "none";
+        }
+
+        function disableInteractions() {
+            isGameOver = true;
+            stages.forEach(stage => stage.setAttribute('draggable', 'false'));
+        }
+
+        function showResetButton() {
+            const resetButton = document.createElement('button');
+            resetButton.textContent = "Reset";
+            resetButton.onclick = resetGame;
+            document.body.appendChild(resetButton);
+        }
+
+        function resetGame() {
+            location.reload();
+        }
+
+        function shuffleStages() {
+            const stageArray = Array.from(stages);
+            const stagesContainer = document.getElementById('stages');
+            stageArray.sort(() => Math.random() - 0.5);
+            stagesContainer.innerHTML = '';
+            stageArray.forEach(stage => stagesContainer.appendChild(stage));
+        }
+
+        shuffleStages();
+    </script>
+    <button onclick="checkOrder()">Submit</button>
+</body>
+</html>
