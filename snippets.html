@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VSB Flipbook</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;}
+[data-theme="dark"]{--bg:#0f0a1a;--card:#1a0e2e;--border:rgba(168,85,247,0.25);--bh:#a855f7;--text:#ccc;--title:#ede0ff;--tag:#a855f7;--sh:rgba(0,0,0,0.6);--btn:rgba(168,85,247,0.1);--btnh:rgba(168,85,247,0.28);--pg:#555;--mb:rgba(168,85,247,0.07);--dp:#12082a;--dpmsg:#1e1035;--chipbg:rgba(168,85,247,0.12);--chipbord:rgba(168,85,247,0.3);}
+[data-theme="light"]{--bg:#ede8f8;--card:#fff;--border:rgba(108,52,131,0.18);--bh:#7c3aed;--text:#3d2a5a;--title:#2d1b4e;--tag:#7c3aed;--sh:rgba(108,52,131,0.12);--btn:rgba(108,52,131,0.07);--btnh:rgba(108,52,131,0.16);--pg:#aaa;--mb:rgba(108,52,131,0.06);--dp:#f5f0ff;--dpmsg:#ede8ff;--chipbg:rgba(108,52,131,0.07);--chipbord:rgba(108,52,131,0.2);}
+body{font-family:'Poppins',sans-serif;background:var(--bg);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;transition:background .3s;}
+.topbar{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:740px;margin-bottom:14px;}
+.topic{font-size:11px;color:var(--tag);letter-spacing:1.5px;text-transform:uppercase;}
+.tbtn{padding:5px 13px;border-radius:50px;border:1px solid var(--border);background:var(--btn);color:var(--text);font-family:'Poppins',sans-serif;font-size:11px;cursor:pointer;transition:all .2s;}
+.tbtn:hover{background:var(--btnh);}
+.mbar{display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:7px 16px;background:var(--btn);border:1px solid var(--border);border-radius:50px;width:100%;max-width:740px;}
+.mbtn{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;cursor:pointer;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.eq{display:flex;align-items:flex-end;gap:2px;height:14px;}
+.eb{width:3px;border-radius:2px;background:#a855f7;animation:eqa .9s ease-in-out infinite alternate;}
+.eb:nth-child(1){height:4px;animation-delay:0s;}.eb:nth-child(2){height:10px;animation-delay:.18s;}.eb:nth-child(3){height:6px;animation-delay:.36s;}.eb:nth-child(4){height:13px;animation-delay:.09s;}.eb:nth-child(5){height:4px;animation-delay:.27s;}
+.eb.off{animation-play-state:paused;opacity:.2;}
+@keyframes eqa{to{transform:scaleY(.2);}}
+.book-scene{perspective:1800px;width:100%;max-width:740px;}
+.book{position:relative;transform-style:preserve-3d;transform:rotateY(-6deg);transition:transform .4s;filter:drop-shadow(0 24px 60px var(--sh));}
+.book:hover{transform:rotateY(-3deg);}
+.bstack1{position:absolute;top:5px;left:8px;right:-8px;bottom:-5px;background:var(--card);border-radius:4px 14px 14px 4px;opacity:.6;z-index:0;}
+.bstack2{position:absolute;top:9px;left:14px;right:-14px;bottom:-9px;background:var(--card);border-radius:4px 14px 14px 4px;opacity:.35;z-index:-1;}
+.spine{position:absolute;left:0;top:0;bottom:0;width:16px;background:linear-gradient(to right,#5b21b6,#a855f7,#7c3aed);border-radius:4px 0 0 4px;z-index:10;box-shadow:2px 0 8px rgba(0,0,0,0.4);}
+.spine-lbl{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);white-space:nowrap;font-size:8px;color:rgba(255,255,255,0.65);letter-spacing:2px;text-transform:uppercase;}
+.page{display:none;margin-left:16px;background:var(--card);border-radius:0 14px 14px 0;padding:26px 28px 52px 26px;position:relative;min-height:500px;border-left:2px solid rgba(168,85,247,0.2);transition:background .3s;z-index:5;}
+.page::before{content:'';position:absolute;left:0;top:0;bottom:0;right:0;background:repeating-linear-gradient(transparent,transparent 31px,rgba(168,85,247,0.03) 31px,rgba(168,85,247,0.03) 32px);pointer-events:none;border-radius:0 14px 14px 0;}
+.page.active{display:block;}
+.page.out{animation:pgout .22s ease-in forwards;}
+.page.in{animation:pgin .25s ease-out forwards;}
+@keyframes pgout{to{opacity:0;transform:perspective(700px) rotateY(-12deg);}}
+@keyframes pgin{from{opacity:0;transform:perspective(700px) rotateY(12deg);}to{opacity:1;transform:none;}}
+.fold{position:absolute;bottom:0;right:0;width:26px;height:26px;background:linear-gradient(225deg,var(--bg) 50%,rgba(168,85,247,0.12) 50%);border-radius:0 0 13px 0;}
+.ptag{font-size:10px;color:var(--tag);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:5px;}
+.ptag::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--tag);box-shadow:0 0 5px var(--tag);}
+.ptitle{font-size:18px;font-weight:700;color:var(--title);margin-bottom:16px;}
+.pbody{font-size:13px;line-height:1.95;color:var(--text);}
+.pbody p{margin-bottom:10px;}
+.ml{text-align:center;margin:10px 0;background:var(--mb);padding:6px 10px;border-radius:6px;color:var(--title);}
+.pgn{position:absolute;bottom:16px;right:18px;font-size:11px;color:var(--pg);}
+.savebtn{position:absolute;bottom:12px;left:16px;display:flex;align-items:center;gap:4px;padding:4px 11px;border-radius:50px;border:1px solid var(--border);background:var(--btn);color:var(--text);font-family:'Poppins',sans-serif;font-size:11px;cursor:pointer;transition:all .2s;}
+.savebtn:hover{background:var(--btnh);}
+.savebtn.saved{background:rgba(168,85,247,0.25);border-color:#a855f7;color:#e9d5ff;}
+.dw{position:relative;width:100%;margin:14px 0;border-radius:10px;overflow:hidden;border:1.5px solid var(--border);cursor:zoom-in;transition:border-color .25s,box-shadow .25s;}
+.dw:hover{border-color:var(--bh);box-shadow:0 0 18px rgba(168,85,247,0.35);}
+.dw canvas{display:block;width:100%;height:auto;}
+.dbadge{position:absolute;top:8px;right:8px;background:rgba(80,20,110,0.88);color:#fff;font-size:10px;padding:2px 8px;border-radius:20px;}
+.dhl{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(30,5,60,0.82));color:#fff;font-size:11px;padding:14px 10px 7px;opacity:0;transition:opacity .25s;}
+.dw:hover .dhl{opacity:1;}
+.navbar{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:740px;margin-top:16px;}
+.navbtn{padding:8px 20px;border-radius:50px;border:1px solid var(--border);background:var(--btn);color:var(--text);font-family:'Poppins',sans-serif;font-size:12px;cursor:pointer;transition:all .2s;}
+.navbtn:hover:not(:disabled){background:var(--btnh);color:var(--title);}
+.navbtn:disabled{opacity:.25;cursor:not-allowed;}
+.dots{display:flex;gap:8px;}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--btn);border:1px solid var(--border);cursor:pointer;transition:all .25s;}
+.dot.on{background:#a855f7;box-shadow:0 0 7px #a855f7;transform:scale(1.3);}
+/* lightbox */
+#lb{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.93);backdrop-filter:blur(14px);flex-direction:column;align-items:center;justify-content:center;gap:10px;}
+#lb.show{display:flex;}
+#lbvp{position:relative;overflow:hidden;cursor:grab;border-radius:12px;border:2px solid rgba(168,85,247,0.45);box-shadow:0 0 50px rgba(168,85,247,0.3);}
+#lbcv{display:block;position:absolute;top:0;left:0;transform-origin:top left;}
+.lbbar{display:flex;align-items:center;gap:10px;}
+.lbbtn{width:32px;height:32px;border-radius:50%;background:rgba(168,85,247,0.35);border:1px solid rgba(168,85,247,0.5);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.lbbtn:hover{background:rgba(168,85,247,0.7);}
+.lbpct{font-size:12px;color:#c4a8e8;min-width:42px;text-align:center;}
+#lbcap{color:#c4a8e8;font-size:12px;text-align:center;max-width:500px;}
+#lbclose{position:fixed;top:14px;right:18px;width:34px;height:34px;border-radius:50%;background:rgba(168,85,247,0.4);border:none;color:#fff;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+#lbclose:hover{background:rgba(168,85,247,0.8);}
+
+/* ── DOUBT PANEL ── */
+.doubtbtn{position:fixed;bottom:24px;right:24px;z-index:1000;display:flex;align-items:center;gap:7px;padding:10px 20px;border-radius:50px;background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;color:#fff;font-family:'Poppins',sans-serif;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 24px rgba(168,85,247,0.55);transition:transform .2s,box-shadow .2s;}
+.doubtbtn:hover{transform:translateY(-2px);box-shadow:0 6px 32px rgba(168,85,247,0.75);}
+.doubtbtn .pulse{width:8px;height:8px;border-radius:50%;background:#fff;animation:pulse 1.6s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.7);}}
+
+#dpanel{position:fixed;top:0;right:0;height:100vh;width:380px;background:var(--dp);border-left:1px solid var(--border);z-index:2000;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .35s cubic-bezier(.4,0,.2,1),background .3s;box-shadow:-12px 0 50px rgba(0,0,0,0.5);}
+#dpanel.open{transform:translateX(0);}
+
+/* panel header */
+.dp-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:linear-gradient(135deg,rgba(168,85,247,0.15),rgba(124,58,237,0.08));}
+.dp-head-left{display:flex;align-items:center;gap:10px;}
+.dp-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#a855f7,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.dp-title{font-size:13px;font-weight:600;color:var(--title);}
+.dp-subtitle{font-size:10px;color:var(--pg);margin-top:1px;}
+.dp-status{display:flex;align-items:center;gap:4px;font-size:10px;color:#22c55e;}
+.dp-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e;}
+.dp-close{width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--btn);color:var(--text);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .2s;}
+.dp-close:hover{background:var(--btnh);}
+
+/* messages area */
+.dp-msgs{flex:1;overflow-y:auto;padding:14px 14px 4px;display:flex;flex-direction:column;gap:12px;scroll-behavior:smooth;}
+.dp-msgs::-webkit-scrollbar{width:4px;}
+.dp-msgs::-webkit-scrollbar-track{background:transparent;}
+.dp-msgs::-webkit-scrollbar-thumb{background:rgba(168,85,247,0.3);border-radius:2px;}
+
+/* intro card */
+.intro-card{background:linear-gradient(135deg,rgba(168,85,247,0.12),rgba(124,58,237,0.07));border:1px solid var(--border);border-radius:14px;padding:14px;}
+.intro-card h4{font-size:12px;color:var(--title);font-weight:600;margin-bottom:4px;}
+.intro-card p{font-size:11px;color:var(--text);line-height:1.6;}
+
+/* suggested questions */
+.sq-label{font-size:10px;color:var(--pg);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;padding:0 2px;}
+.sq-list{display:flex;flex-direction:column;gap:6px;}
+.sq-btn{width:100%;text-align:left;padding:9px 12px;border-radius:10px;border:1px solid var(--chipbord);background:var(--chipbg);color:var(--text);font-family:'Poppins',sans-serif;font-size:11px;cursor:pointer;transition:all .2s;line-height:1.4;display:flex;align-items:center;gap:8px;}
+.sq-btn:hover{background:rgba(168,85,247,0.2);border-color:#a855f7;color:var(--title);}
+.sq-btn::before{content:'→';color:#a855f7;font-size:12px;flex-shrink:0;}
+
+/* message bubbles */
+.msg-row{display:flex;gap:8px;align-items:flex-end;}
+.msg-row.user{flex-direction:row-reverse;}
+.msg-av{width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;}
+.msg-av.bot{background:linear-gradient(135deg,#a855f7,#7c3aed);}
+.msg-av.user{background:linear-gradient(135deg,#3b82f6,#1d4ed8);}
+.msg-bubble{max-width:82%;padding:10px 14px;border-radius:16px;font-size:12px;line-height:1.75;}
+.msg-bubble.bot{background:var(--dpmsg);color:var(--text);border-bottom-left-radius:4px;border:1px solid var(--border);}
+.msg-bubble.user{background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border-bottom-right-radius:4px;}
+.msg-bubble.typing{background:var(--dpmsg);border:1px solid var(--border);}
+.typing-dots{display:flex;gap:4px;align-items:center;padding:2px 0;}
+.typing-dots span{width:7px;height:7px;border-radius:50%;background:var(--pg);animation:tdot .9s infinite;}
+.typing-dots span:nth-child(2){animation-delay:.18s;}
+.typing-dots span:nth-child(3){animation-delay:.36s;}
+@keyframes tdot{0%,60%,100%{transform:translateY(0);opacity:.4;}30%{transform:translateY(-6px);opacity:1;}}
+
+/* source tag */
+.src-tag{display:inline-flex;align-items:center;gap:4px;margin-top:7px;padding:3px 9px;border-radius:20px;background:rgba(168,85,247,0.15);border:1px solid rgba(168,85,247,0.3);font-size:10px;color:#c4a8e8;cursor:default;}
+.src-tag::before{content:'📌';}
+
+/* follow-up chips */
+.fu-wrap{display:flex;flex-direction:column;gap:5px;margin-top:8px;}
+.fu-label{font-size:10px;color:var(--pg);margin-bottom:2px;}
+.fu-chip{padding:6px 11px;border-radius:20px;border:1px solid var(--chipbord);background:var(--chipbg);color:var(--text);font-family:'Poppins',sans-serif;font-size:11px;cursor:pointer;transition:all .2s;text-align:left;}
+.fu-chip:hover{background:rgba(168,85,247,0.22);border-color:#a855f7;color:var(--title);}
+
+/* divider */
+.dp-divider{display:flex;align-items:center;gap:8px;padding:0 2px;}
+.dp-divider span{font-size:10px;color:var(--pg);white-space:nowrap;}
+.dp-divider::before,.dp-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* input area */
+.dp-inp-wrap{flex-shrink:0;border-top:1px solid var(--border);background:var(--dp);}
+.dp-inp{display:flex;gap:8px;padding:12px 14px;align-items:flex-end;}
+.dp-textarea{flex:1;padding:9px 13px;border-radius:16px;border:1px solid var(--border);background:var(--btn);color:var(--text);font-family:'Poppins',sans-serif;font-size:12px;outline:none;transition:border-color .2s;resize:none;min-height:38px;max-height:110px;line-height:1.5;overflow-y:auto;}
+.dp-textarea:focus{border-color:#a855f7;}
+.dp-textarea::placeholder{color:var(--pg);}
+.dp-send{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .2s,opacity .2s;flex-shrink:0;}
+.dp-send:hover:not(:disabled){transform:scale(1.1);}
+.dp-send:disabled{opacity:.35;cursor:not-allowed;}
+.dp-tools{display:flex;gap:6px;padding:0 14px 10px;align-items:center;}
+.dp-tool{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--pg);font-family:'Poppins',sans-serif;font-size:10px;cursor:pointer;transition:all .2s;}
+.dp-tool:hover{border-color:#a855f7;color:var(--tag);}
+.dp-tool.on{background:rgba(168,85,247,0.2);border-color:#a855f7;color:#e9d5ff;}
+.char-count{margin-left:auto;font-size:10px;color:var(--pg);}
+
+/* audio card */
+.audio-card{background:var(--btn);border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:6px;}
+.ac-title{font-size:10px;color:var(--tag);margin-bottom:6px;font-weight:600;}
+.audio-ctrl{display:flex;align-items:center;gap:8px;}
+.ac-btn{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#a855f7,#7c3aed);border:none;color:#fff;font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.ac-bar{flex:1;height:4px;background:rgba(168,85,247,0.2);border-radius:2px;overflow:hidden;}
+.ac-fill{height:100%;background:#a855f7;border-radius:2px;width:0%;transition:width .1s linear;}
+.ac-dur{font-size:10px;color:var(--pg);}
+</style>
+</head>
+<body>
+
+<!-- LIGHTBOX -->
+<div id="lb" onclick="closeLB()">
+  <button id="lbclose" onclick="closeLB()">✕</button>
+  <div id="lbvp" onclick="event.stopPropagation()"><canvas id="lbcv"></canvas></div>
+  <div class="lbbar" onclick="event.stopPropagation()">
+    <button class="lbbtn" onclick="zoomLB(-1)">−</button>
+    <div class="lbpct" id="lbpct">100%</div>
+    <button class="lbbtn" onclick="zoomLB(1)">+</button>
+  </div>
+  <div id="lbcap"></div>
+</div>
+
+<!-- DOUBT PANEL -->
+<button class="doubtbtn" onclick="toggleDoubt()">
+  <div class="pulse"></div> Ask a Doubt
+</button>
+
+<div id="dpanel">
+  <div class="dp-head">
+    <div class="dp-head-left">
+      <div class="dp-avatar">🎓</div>
+      <div>
+        <div class="dp-title">VSB Tutor</div>
+        <div class="dp-status">Online · Ready to help</div>
+      </div>
+    </div>
+    <button class="dp-close" onclick="toggleDoubt()">✕</button>
+  </div>
+
+  <div class="dp-msgs" id="dp-msgs">
+    <!-- intro card -->
+    <div class="intro-card">
+      <h4>👋 Hi there! I'm your VSB Tutor.</h4>
+      <p>I can answer any question about Vestigial Sideband modulation — spectrum analysis, generation, detection, formulas, comparisons with SSB/DSB, or anything else. Ask freely!</p>
+    </div>
+    <div class="sq-label">Suggested questions</div>
+    <div class="sq-list" id="sq-list">
+      <button class="sq-btn" onclick="askSuggested(this)">What is the key difference between VSB and SSB?</button>
+      <button class="sq-btn" onclick="askSuggested(this)">Why do we need the vestigial portion — what does it compensate?</button>
+      <button class="sq-btn" onclick="askSuggested(this)">What is the role of H(f) in VSB generation?</button>
+      <button class="sq-btn" onclick="askSuggested(this)">How is the bandwidth of VSB calculated?</button>
+      <button class="sq-btn" onclick="askSuggested(this)">Explain the condition for distortionless detection in VSB.</button>
+    </div>
+  </div>
+
+  <div class="dp-inp-wrap">
+    <div class="dp-tools">
+      <button class="dp-tool on" id="tool-text" onclick="setFmt('text')">📝 Text</button>
+      <button class="dp-tool" id="tool-audio" onclick="setFmt('audio')">🔊 Audio</button>
+      <span class="char-count" id="char-count">0 / 500</span>
+    </div>
+    <div class="dp-inp">
+      <textarea class="dp-textarea" id="dp-input" placeholder="Ask anything about VSB..." maxlength="500"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendDoubt();}"
+        oninput="updateCharCount(this)"></textarea>
+      <button class="dp-send" id="dp-send-btn" onclick="sendDoubt()">➤</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topic">📡 Communication Systems · VSB</div>
+  <button class="tbtn" id="themeBtn" onclick="toggleTheme()">☀️ Light</button>
+</div>
+
+<!-- MUSIC BAR -->
+<div class="mbar">
+  <button class="mbtn" id="mBtn" onclick="toggleMusic()">▶</button>
+  <div class="eq"><div class="eb off"></div><div class="eb off"></div><div class="eb off"></div><div class="eb off"></div><div class="eb off"></div></div>
+</div>
+
+<!-- BOOK -->
+<div class="book-scene"><div class="book">
+  <div class="bstack2"></div><div class="bstack1"></div>
+  <div class="spine"><div class="spine-lbl">VSB · Comm Systems</div></div>
+
+  <div class="page active" id="p0">
+    <div class="ptag">Card 01</div>
+    <div class="ptitle">Vestigial Sideband (VSB)</div>
+    <div class="pbody">
+      <p>Even though SSB-SC modulation reduces the bandwidth requirement for transmission, SSB-SC signals are relatively difficult to generate due to the difficulty in isolating the desired sideband.</p>
+      <p>In VSB, a compromise between SSB and DSB-SC, one sideband is passed almost completely whereas just a <em>vestige</em> of the other sideband is retained.</p>
+      <p>The transmitted vestige compensates for the amount removed from the desired sideband.</p>
+      <p>Transmission bandwidth = \(\mathrm{f_m + f_v}\) where \(\mathrm{f_v}\) is the width of the vestigial sideband.</p>
+      <div class="dw" onclick="openLB('c1','Spectrum of VSB Signal — Full USB and vestigial portion of LSB')">
+        <canvas id="c1" width="580" height="200"></canvas>
+        <div class="dbadge">🔍 Expand</div><div class="dhl">Spectrum of VSB Signal</div>
+      </div>
+    </div>
+    <div class="pgn">1 / 3</div>
+    <button class="savebtn" id="sb0" onclick="toggleSave(0)">🔖 Save</button>
+    <div class="fold"></div>
+  </div>
+
+  <div class="page" id="p1">
+    <div class="ptag">Card 02</div>
+    <div class="ptitle">Generation of VSB</div>
+    <div class="pbody">
+      <div class="dw" onclick="openLB('c2','VSB Generation — m(t) → Product Modulator → BPF H(f) → S(t)')">
+        <canvas id="c2" width="580" height="150"></canvas>
+        <div class="dbadge">🔍 Expand</div><div class="dhl">Block Diagram — VSB Generator</div>
+      </div>
+      <p class="ml">\(\mathrm{v(t)=A_c m(t)\cos 2\pi f_c t}\)</p>
+      <p class="ml">\(\mathrm{s(t)=v(t)\otimes h(t)}\)</p>
+      <p>Time domain VSB signal:</p>
+      <p class="ml">\(\mathrm{\dfrac{A_c}{2}[m(t)\cos 2\pi f_c t - m_s(t)\sin 2\pi f_c t]}\)</p>
+      <p>Frequency domain:</p>
+      <p class="ml">\(\mathrm{S(f)=\dfrac{A_c}{2}[M(f-f_c)+M(f+f_c)]\cdot H(f)}\)</p>
+    </div>
+    <div class="pgn">2 / 3</div>
+    <button class="savebtn" id="sb1" onclick="toggleSave(1)">🔖 Save</button>
+    <div class="fold"></div>
+  </div>
+
+  <div class="page" id="p2">
+    <div class="ptag">Card 03</div>
+    <div class="ptitle">Detection of VSB</div>
+    <div class="pbody">
+      <div class="dw" onclick="openLB('c3','VSB Demodulation — s(t) → Product Modulator → LPF → v₀(t)')">
+        <canvas id="c3" width="580" height="150"></canvas>
+        <div class="dbadge">🔍 Expand</div><div class="dhl">Block Diagram — VSB Demodulator</div>
+      </div>
+      <p>Output of product modulator: \(\mathrm{A_c s(t)\cos 2\pi f_c t}\). Applying F.T.:</p>
+      <p class="ml">\(\mathrm{V(f)=\dfrac{A_c}{2}[S(f-f_c)+S(f+f_c)]}\)</p>
+      <p class="ml">\(\mathrm{[M(f-2f_c)+M(f)]H(f-f_c)+[M(f+2f_c)+M(f)]H(f+f_c)}\)</p>
+      <p>Output of LPF:</p>
+      <p class="ml">\(\mathrm{V_0(f)=\dfrac{A_c^2}{4}M(f)[H(f-f_c)+H(f+f_c)]}\)</p>
+    </div>
+    <div class="pgn">3 / 3</div>
+    <button class="savebtn" id="sb2" onclick="toggleSave(2)">🔖 Save</button>
+    <div class="fold"></div>
+  </div>
+</div></div>
+
+<!-- NAV -->
+<div class="navbar">
+  <button class="navbtn" id="prev" onclick="go(-1)" disabled>◀ Prev</button>
+  <div class="dots">
+    <div class="dot on" onclick="jump(0)"></div>
+    <div class="dot" onclick="jump(1)"></div>
+    <div class="dot" onclick="jump(2)"></div>
+  </div>
+  <button class="navbtn" id="next" onclick="go(1)">Next ▶</button>
+</div>
+
+<script>
+// ── STATE ─────────────────────────────────────────────
+let cur=0;
+const pages=document.querySelectorAll('.page');
+const dots=document.querySelectorAll('.dot');
+
+let isThinking=false;
+let fmt='text';
+let lastQA=null; // for follow-up context
+
+// ── OFFLINE Q&A KNOWLEDGE BASE ─────────────────────────
+const KB=[
+  {
+    keys:['what is vsb','define vsb','vestigial sideband','what is vestigial'],
+    ans:`VSB (Vestigial Sideband) is a modulation technique that strikes a balance between DSB-SC and SSB.\n\nIn VSB:\n• One sideband is transmitted fully\n• A small "vestige" (remnant) of the other sideband is also kept\n• This vestige compensates for the portion cut from the desired sideband\n\nTransmission Bandwidth = fm + fv\nwhere fv is the width of the vestigial sideband.`,
+    fu:['Why is VSB preferred over SSB?','How is VSB bandwidth calculated?','What does the vestige compensate?']
+  },
+  {
+    keys:['bandwidth','fm','fv','vestige width','transmission bandwidth'],
+    ans:`VSB Transmission Bandwidth = fm + fv\n\n• fm = maximum message frequency\n• fv = width of the vestigial sideband\n\nThis is wider than SSB (fm) but narrower than DSB-SC (2fm).\n\nThe vestige fv is kept small, so VSB bandwidth is only slightly more than SSB — giving a good trade-off between bandwidth efficiency and ease of generation.`,
+    fu:['How does VSB compare to SSB bandwidth?','What is the role of vestige?','How is VSB generated?']
+  },
+  {
+    keys:['compare','difference','vs ssb','vs dsb','advantage','disadvantage','why vsb','preferred'],
+    ans:`VSB vs SSB vs DSB-SC:\n\n• DSB-SC: Bandwidth = 2fm. Easy to generate but wastes spectrum.\n• SSB: Bandwidth = fm. Most efficient, but very hard to generate (sharp filter needed).\n• VSB: Bandwidth = fm + fv. Easy to generate like DSB-SC, nearly as efficient as SSB.\n\nVSB Advantages:\n• Easier filter design than SSB\n• Lower bandwidth than DSB-SC\n• Distortion-free if H(f) satisfies the VSB condition\n\nVSB is widely used in TV broadcasting (analog) and data modems.`,
+    fu:['What is the VSB filter condition?','How is VSB generated?','What are VSB applications?']
+  },
+  {
+    keys:['application','used for','tv','television','broadcast','practical'],
+    ans:`VSB Applications:\n\n• Analog TV Broadcasting: VSB was the standard for analog TV (e.g., NTSC). The video signal needs ~4 MHz, too wide for SSB but DSB-SC wastes spectrum. VSB provided a practical compromise.\n• Data Modems: VSB variants are used in high-speed data transmission.\n• Digital TV (ATSC): 8-VSB is used in US digital TV broadcasting.\n• Cable modems: 16-VSB and 64-VSB QAM variants.\n\nVSB is ideal when the signal has significant low-frequency content that makes SSB filtering impractical.`,
+    fu:['What is 8-VSB?','How does VSB generation work?','What is the VSB filter condition?']
+  },
+  {
+    keys:['generat','product modulator','bpf','h(f)','filter','how vsb is made','produce'],
+    ans:`VSB Generation steps:\n\n1. Start with message m(t)\n2. Multiply by carrier: v(t) = Ac·m(t)·cos(2πfct)\n   → This creates a DSB-SC signal\n3. Pass through BPF H(f) → output is s(t)\n   s(t) = v(t) ⊗ h(t)\n\nIn frequency domain:\nS(f) = Ac/2 · [M(f−fc) + M(f+fc)] · H(f)\n\nThe BPF H(f) is designed to pass one full sideband and only a vestige of the other. Its exact shape determines whether VSB is upper or lower sideband.`,
+    fu:['What condition must H(f) satisfy?','How is VSB detected?','What is the VSB spectrum?']
+  },
+  {
+    keys:['detect','demodulat','lpf','low pass','v0','output','coherent','receiv'],
+    ans:`VSB Detection (Coherent Demodulation):\n\n1. Multiply received s(t) by the same carrier: Ac·cos(2πfct)\n2. Pass through a Low Pass Filter (LPF)\n\nAfter the product modulator:\nV(f) = Ac/2 · [S(f−fc) + S(f+fc)]\n\nAfter LPF, the output is:\nV₀(f) = Ac²/4 · M(f) · [H(f−fc) + H(f+fc)]\n\nFor distortionless detection, we need:\nH(f−fc) + H(f+fc) = constant, for |f| ≤ fm\n\nThis is the VSB filter condition — it ensures the original message m(t) is recovered perfectly.`,
+    fu:['What is the VSB filter condition?','How does VSB generation work?','What is coherent detection?']
+  },
+  {
+    keys:['filter condition','distortionless','h(f-fc)','h(f+fc)','constant','condition for'],
+    ans:`VSB Filter Condition for Distortionless Detection:\n\nH(f−fc) + H(f+fc) = constant, for |f| ≤ fm\n\nThis means the VSB filter H(f) must have odd symmetry about the carrier frequency fc.\n\nWhy? When VSB is demodulated, both shifted copies of H(f) are added. If their sum is constant across the message band, no frequency components are boosted or cut — the message is recovered perfectly.\n\nThis condition is automatically satisfied by a properly designed VSB filter with gradual rolloff around fc.`,
+    fu:['How is VSB detected?','How does the LPF help in detection?','Compare VSB with SSB.']
+  },
+  {
+    keys:['spectrum','frequency domain','s(f)','m(f)','frequency response','spectral'],
+    ans:`VSB Spectrum:\n\nThe VSB signal spectrum S(f) consists of:\n• Full upper sideband (USB): from fc to fc+fm\n• Vestigial lower sideband: a small portion below fc (width = fv)\n\nIn frequency domain:\nS(f) = Ac/2 · [M(f−fc) + M(f+fc)] · H(f)\n\nThe BPF H(f) shapes the spectrum — one sideband passes completely, the other is partially suppressed. The vestige is the surviving portion of the suppressed sideband.`,
+    fu:['What is the VSB bandwidth?','How does VSB compare to DSB?','How is VSB generated?']
+  },
+  {
+    keys:['time domain','s(t)','ms(t)','hilbert','quadrature'],
+    ans:`VSB Time Domain Signal:\n\ns(t) = Ac/2 · [m(t)·cos(2πfct) − ms(t)·sin(2πfct)]\n\nwhere ms(t) is a modified version of m(t) — not exactly the Hilbert transform (as in SSB), but a filtered version that retains partial phase information due to the vestige.\n\nCompare:\n• DSB-SC: s(t) = Ac·m(t)·cos(2πfct) — no quadrature term\n• SSB: quadrature term uses exact Hilbert transform m̂(t)\n• VSB: quadrature term uses partial Hilbert transform ms(t)`,
+    fu:['What is the VSB frequency domain equation?','How does VSB differ from SSB?','What is the VSB filter condition?']
+  },
+  {
+    keys:['coherent','carrier recovery','synchronous','local oscillator'],
+    ans:`Coherent Detection in VSB:\n\nCoherent detection means the receiver uses a local carrier that is perfectly synchronized (same frequency and phase) with the transmitter carrier.\n\nIn VSB detection:\n• Received s(t) is multiplied by Ac·cos(2πfct)\n• This shifts the spectrum back to baseband\n• A LPF then removes the high-frequency components\n\nIf the local carrier is not synchronized, the demodulated signal will be distorted. This is why coherent detection is more complex than envelope detection but gives better performance.`,
+    fu:['What does the LPF do in detection?','What is the VSB filter condition?','How is VSB generated?']
+  },
+];
+
+function offlineAnswer(q){
+  const ql=q.toLowerCase();
+  // score each KB entry
+  let best=null,bestScore=0;
+  for(const entry of KB){
+    let score=entry.keys.filter(k=>ql.includes(k)).length;
+    // partial word match bonus
+    for(const k of entry.keys){
+      const words=k.split(' ');
+      if(words.some(w=>w.length>3&&ql.includes(w))) score+=0.5;
+    }
+    if(score>bestScore){bestScore=score;best=entry;}
+  }
+  if(best&&bestScore>0) return best;
+  // fallback
+  return {
+    ans:`Great question! Here's a summary of what I know about VSB:\n\n• VSB is a compromise between SSB and DSB-SC modulation\n• Bandwidth = fm + fv (slightly more than SSB)\n• Generated by passing DSB-SC through a specially designed BPF H(f)\n• Detected coherently using a product modulator + LPF\n• Filter condition: H(f−fc) + H(f+fc) = constant for |f| ≤ fm\n\nTry asking about: VSB generation, detection, spectrum, bandwidth, or comparison with SSB/DSB.`,
+    fu:['How is VSB generated?','How is VSB detected?','What is VSB bandwidth?']
+  };
+}
+
+// ── PAGES ─────────────────────────────────────────────
+function show(n){
+  pages[cur].classList.add('out');
+  const prev=cur;
+  setTimeout(()=>{
+    pages[prev].classList.remove('active','out');
+    dots[prev].classList.remove('on');
+    cur=n;
+    pages[cur].classList.add('active','in');
+    dots[cur].classList.add('on');
+    setTimeout(()=>pages[cur].classList.remove('in'),280);
+    document.getElementById('prev').disabled=cur===0;
+    document.getElementById('next').disabled=cur===pages.length-1;
+    updateSaveBtn(cur);
+    if(window.MathJax)MathJax.typesetPromise([pages[cur]]);
+  },200);
+}
+function go(d){const n=cur+d;if(n>=0&&n<pages.length)show(n);}
+function jump(n){if(n!==cur)show(n);}
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'&&!doubtOpen)go(1);
+  if(e.key==='ArrowLeft'&&!doubtOpen)go(-1);
+  if(e.key==='Escape')closeLB();
+});
+
+// ── SAVE ──────────────────────────────────────────────
+const saved=new Set();
+function toggleSave(idx){if(saved.has(idx))saved.delete(idx);else saved.add(idx);updateSaveBtn(idx);}
+function updateSaveBtn(idx){
+  const b=document.getElementById('sb'+idx);if(!b)return;
+  if(saved.has(idx)){b.classList.add('saved');b.textContent='✅ Saved';}
+  else{b.classList.remove('saved');b.textContent='🔖 Save';}
+}
+
+// ── LIGHTBOX ──────────────────────────────────────────
+let lbZ=1,lbX=0,lbY=0,drag=false,dsx=0,dsy=0,dox=0,doy=0;
+function openLB(srcId,cap){
+  const src=document.getElementById(srcId),cv=document.getElementById('lbcv'),vp=document.getElementById('lbvp');
+  cv.width=src.width;cv.height=src.height;
+  cv.getContext('2d').drawImage(src,0,0);
+  document.getElementById('lbcap').textContent=cap;
+  const vpW=Math.round(window.innerWidth*.88),vpH=Math.round(window.innerHeight*.72);
+  vp.style.width=vpW+'px';vp.style.height=vpH+'px';
+  lbZ=1;lbX=0;lbY=0;applyLB(vpW,vpH);
+  document.getElementById('lb').classList.add('show');
+}
+function applyLB(vpW,vpH){
+  const cv=document.getElementById('lbcv'),vp=document.getElementById('lbvp');
+  if(!vpW)vpW=vp.clientWidth;if(!vpH)vpH=vp.clientHeight;
+  const fit=Math.min(vpW/cv.width,vpH/cv.height),s=fit*lbZ;
+  const sw=cv.width*s,sh=cv.height*s;
+  const mx=Math.max(0,(sw-vpW)/2),my=Math.max(0,(sh-vpH)/2);
+  lbX=Math.max(-mx,Math.min(mx,lbX));lbY=Math.max(-my,Math.min(my,lbY));
+  cv.style.transform='translate('+((vpW-sw)/2+lbX)+'px,'+((vpH-sh)/2+lbY)+'px) scale('+s+')';
+  document.getElementById('lbpct').textContent=Math.round(lbZ*100)+'%';
+}
+function closeLB(){document.getElementById('lb').classList.remove('show');}
+function zoomLB(d){lbZ=Math.min(4,Math.max(.5,lbZ+d*.25));applyLB();}
+const vp=document.getElementById('lbvp');
+vp.addEventListener('mousedown',e=>{drag=true;dsx=e.clientX;dsy=e.clientY;dox=lbX;doy=lbY;vp.style.cursor='grabbing';e.preventDefault();});
+window.addEventListener('mousemove',e=>{if(!drag)return;lbX=dox+(e.clientX-dsx);lbY=doy+(e.clientY-dsy);applyLB();});
+window.addEventListener('mouseup',()=>{drag=false;vp.style.cursor='grab';});
+vp.addEventListener('wheel',e=>{e.preventDefault();lbZ=Math.min(4,Math.max(.5,lbZ+(e.deltaY>0?-.15:.15)));applyLB();},{passive:false});
+
+// ── DOUBT PANEL ───────────────────────────────────────
+let doubtOpen=false;
+function toggleDoubt(){
+  doubtOpen=!doubtOpen;
+  document.getElementById('dpanel').classList.toggle('open',doubtOpen);
+}
+function setFmt(f){
+  fmt=f;
+  document.getElementById('tool-text').classList.toggle('on',f==='text');
+  document.getElementById('tool-audio').classList.toggle('on',f==='audio');
+}
+function updateCharCount(el){
+  document.getElementById('char-count').textContent=el.value.length+' / 500';
+}
+
+function addUserBubble(text){
+  const box=document.getElementById('dp-msgs');
+  const row=document.createElement('div');
+  row.className='msg-row user';
+  row.innerHTML=`<div class="msg-av user">🧑</div><div class="msg-bubble user">${escHtml(text)}</div>`;
+  box.appendChild(row);
+  box.scrollTop=box.scrollHeight;
+}
+
+function addTypingIndicator(){
+  const box=document.getElementById('dp-msgs');
+  const row=document.createElement('div');
+  row.className='msg-row';row.id='typing-row';
+  row.innerHTML=`<div class="msg-av bot">🎓</div><div class="msg-bubble typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>`;
+  box.appendChild(row);
+  box.scrollTop=box.scrollHeight;
+  return row;
+}
+
+function removeTyping(){
+  const r=document.getElementById('typing-row');
+  if(r)r.remove();
+}
+
+function addBotBubble(mainText,sourceLabel,followUps){
+  const box=document.getElementById('dp-msgs');
+  const row=document.createElement('div');
+  row.className='msg-row';
+
+  let inner=`<div class="msg-bubble bot">${escHtml(mainText)}`;
+
+  inner+=`</div>`;
+  row.innerHTML=`<div class="msg-av bot">🎓</div>${inner}`;
+  box.appendChild(row);
+
+  if(followUps && followUps.length){
+    const fuWrap=document.createElement('div');
+    fuWrap.style.paddingLeft='34px';
+    fuWrap.innerHTML=`<div class="fu-wrap"><div class="fu-label">You might also ask</div>${
+      followUps.map(q=>`<button class="fu-chip" onclick="askSuggested(this)">${escHtml(q)}</button>`).join('')
+    }</div>`;
+    box.appendChild(fuWrap);
+  }
+  box.scrollTop=box.scrollHeight;
+}
+
+function addAudioBubble(script,sourceLabel){
+  const box=document.getElementById('dp-msgs');
+  const row=document.createElement('div');
+  row.className='msg-row';
+  const uid='ac_'+Date.now();
+  let inner=`<div class="msg-bubble bot">
+    <div class="audio-card">
+      <div class="ac-title">🔊 Audio Explanation</div>
+      <div class="audio-ctrl">
+        <button class="ac-btn" id="${uid}">▶</button>
+        <div class="ac-bar"><div class="ac-fill" id="${uid}_f"></div></div>
+        <span class="ac-dur" id="${uid}_d">0:00</span>
+      </div>
+    </div>`;
+  if(sourceLabel) inner+=`<br><span class="src-tag">${escHtml(sourceLabel)}</span>`;
+  inner+=`</div>`;
+  row.innerHTML=`<div class="msg-av bot">🎓</div>${inner}`;
+  box.appendChild(row);
+  box.scrollTop=box.scrollHeight;
+
+  const btn=document.getElementById(uid);
+  const fill=document.getElementById(uid+'_f');
+  const dur=document.getElementById(uid+'_d');
+  let progTimer,paused=false,startTime=0;
+
+  btn.addEventListener('click',()=>{
+    if(paused){window.speechSynthesis.resume();paused=false;btn.textContent='⏸';return;}
+    if(window.speechSynthesis.speaking){window.speechSynthesis.pause();paused=true;btn.textContent='▶';return;}
+    window.speechSynthesis.cancel();
+    const utt=new SpeechSynthesisUtterance(script);
+    utt.rate=0.88;utt.pitch=1.05;utt.volume=1;
+    const voices=window.speechSynthesis.getVoices();
+    const pref=voices.find(v=>v.name.includes('Samantha')||v.name.includes('Karen')||v.name.includes('Daniel'));
+    if(pref)utt.voice=pref;
+    startTime=Date.now();
+    const estDur=(script.length/13)*1000;
+    progTimer=setInterval(()=>{
+      const el=(Date.now()-startTime)/1000;
+      fill.style.width=Math.min(100,(el/(estDur/1000))*100)+'%';
+      const s=Math.floor(el);dur.textContent=Math.floor(s/60)+':'+(s%60).toString().padStart(2,'0');
+    },200);
+    utt.onend=()=>{clearInterval(progTimer);fill.style.width='100%';btn.textContent='▶';paused=false;};
+    window.speechSynthesis.speak(utt);btn.textContent='⏸';
+  });
+}
+
+function escHtml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+
+
+function sendDoubt(text){
+  if(isThinking) return;
+  const inp=document.getElementById('dp-input');
+  const q=(text||inp.value).trim();
+  if(!q) return;
+  inp.value='';
+  updateCharCount(inp);
+
+  // hide suggested questions on first real message
+  const sq=document.getElementById('sq-list');
+  if(sq) sq.remove();
+
+  addUserBubble(q);
+
+  isThinking=true;
+  document.getElementById('dp-send-btn').disabled=true;
+  const typRow=addTypingIndicator();
+
+  // simulate a brief thinking delay for natural feel
+  setTimeout(()=>{
+    removeTyping();
+    const result=offlineAnswer(q);
+    lastQA=result;
+    if(fmt==='text') addBotBubble(result.ans,'',result.fu);
+    else addAudioBubble(result.ans,'');
+    isThinking=false;
+    document.getElementById('dp-send-btn').disabled=false;
+  },600);
+  return;
+}
+
+function askSuggested(btn){
+  const text=btn.textContent;
+  sendDoubt(text);
+}
+
+// ── THEME ─────────────────────────────────────────────
+let dark=true;
+function toggleTheme(){
+  dark=!dark;
+  document.documentElement.setAttribute('data-theme',dark?'dark':'light');
+  document.getElementById('themeBtn').textContent=dark?'☀️ Light':'🌙 Dark';
+  initDiagrams();
+}
+
+// ── MUSIC ─────────────────────────────────────────────
+let actx,mg,oscs=[],playing=false,seqTimer=null,step=0;
+const chords=[[261.63,329.63,392,493.88],[220,261.63,329.63,440],[174.61,220,261.63,349.23],[196,246.94,293.66,392]];
+const pads=[130.81,110,87.31,98];
+function tone(freq,startT,dur,vol,type,det){
+  const o=actx.createOscillator(),g=actx.createGain();
+  o.type=type||'sine';o.frequency.value=freq;if(det)o.detune.value=det;
+  g.gain.setValueAtTime(0,startT);g.gain.linearRampToValueAtTime(vol,startT+0.12);
+  g.gain.setValueAtTime(vol,startT+dur*0.65);g.gain.exponentialRampToValueAtTime(0.0001,startT+dur);
+  o.connect(g);g.connect(mg);o.start(startT);o.stop(startT+dur+0.1);oscs.push(o);
+}
+function playStep(){
+  if(!playing)return;
+  const now=actx.currentTime,ci=step%4,chord=chords[ci],beat=1.8;
+  tone(pads[ci],now,beat*3.5,0.12,'sine');
+  tone(pads[ci]*2,now,beat*3.5,0.06,'sine',5);
+  chord.forEach((f,i)=>{tone(f,now+i*0.22,beat*2.2,0.09,'sine');tone(f,now+i*0.22,beat*2.2,0.04,'triangle',-3);});
+  if(step%2===0)tone(chord[chord.length-1]*2,now+0.5,beat*1.8,0.04,'sine');
+  step++;seqTimer=setTimeout(playStep,beat*1600);
+}
+function toggleMusic(){
+  if(!actx)actx=new(window.AudioContext||window.webkitAudioContext)();
+  if(playing){
+    clearTimeout(seqTimer);mg.gain.setTargetAtTime(0,actx.currentTime,0.6);
+    setTimeout(()=>{oscs.forEach(o=>{try{o.stop();}catch(e){}});oscs=[];},1500);
+    playing=false;document.getElementById('mBtn').textContent='▶';
+    document.querySelectorAll('.eb').forEach(b=>b.classList.add('off'));
+  }else{
+    mg=actx.createGain();mg.gain.setValueAtTime(0,actx.currentTime);
+    mg.gain.linearRampToValueAtTime(0.5,actx.currentTime+2);
+    const delay=actx.createDelay(2),dg=actx.createGain();
+    delay.delayTime.value=0.45;dg.gain.value=0.3;
+    mg.connect(delay);delay.connect(dg);dg.connect(actx.destination);
+    mg.connect(actx.destination);
+    playing=true;step=0;playStep();
+    document.getElementById('mBtn').textContent='⏸';
+    document.querySelectorAll('.eb').forEach(b=>b.classList.remove('off'));
+  }
+}
+
+// ── DIAGRAMS ──────────────────────────────────────────
+function drawSpectrum(id){
+  const cv=document.getElementById(id);if(!cv)return;
+  const x=cv.getContext('2d'),W=cv.width,H=cv.height;
+  x.fillStyle='#0d0720';x.fillRect(0,0,W,H);
+  const base=H-38;
+  x.strokeStyle='#999';x.lineWidth=1.5;
+  x.beginPath();x.moveTo(15,base);x.lineTo(W-10,base);x.stroke();
+  x.fillStyle='#999';
+  x.beginPath();x.moveTo(W-10,base);x.lineTo(W-17,base-5);x.lineTo(W-17,base+5);x.closePath();x.fill();
+  x.beginPath();x.moveTo(W/2,H-16);x.lineTo(W/2,12);x.stroke();
+  x.beginPath();x.moveTo(W/2,12);x.lineTo(W/2-5,20);x.lineTo(W/2+5,20);x.closePath();x.fill();
+  x.fillStyle='#999';x.font='12px Poppins,sans-serif';x.textAlign='center';x.fillText('0',W/2,H-18);
+  function bell(cx,w,h,dash){
+    x.beginPath();x.setLineDash(dash?[5,4]:[]);x.strokeStyle='#e07b30';x.lineWidth=2.5;
+    for(let i=0;i<=80;i++){const t=i/80;const px=cx-w/2+w*t;const py=base-h*Math.exp(-Math.pow((t-.5)*4,2));if(i===0)x.moveTo(px,py);else x.lineTo(px,py);}
+    x.stroke();x.setLineDash([]);
+  }
+  bell(100,110,100,false);bell(172,75,58,true);bell(W/2+42,75,58,true);bell(W/2+135,110,100,false);
+  x.strokeStyle='#22c55e';x.lineWidth=2;
+  x.beginPath();x.moveTo(W/2+8,52);x.lineTo(W/2+78,52);x.stroke();
+  x.fillStyle='#22c55e';
+  x.beginPath();x.moveTo(W/2+8,52);x.lineTo(W/2+16,47);x.lineTo(W/2+16,57);x.closePath();x.fill();
+  x.beginPath();x.moveTo(W/2+78,52);x.lineTo(W/2+70,47);x.lineTo(W/2+70,57);x.closePath();x.fill();
+  x.font='bold 12px Poppins';x.textAlign='center';x.fillText('fᵥ',W/2+43,45);
+  x.strokeStyle='rgba(255,255,255,0.18)';x.lineWidth=1;x.setLineDash([4,4]);
+  x.beginPath();x.moveTo(W/2+78,18);x.lineTo(W/2+78,base);x.stroke();x.setLineDash([]);
+  x.fillStyle='#e07b30';x.font='11px Poppins';x.textAlign='center';
+  x.fillText('fc−fm',60,H-20);x.fillText('fc',170,H-20);x.fillText('fc',W/2+132,H-20);x.fillText('fc+fm',W/2+198,H-20);
+  x.fillStyle='#38bdf8';x.font='bold 11px Poppins';
+  x.fillText('Full USB',75,H-118);x.fillText('Part of LSB',175,H-82);x.fillText('Part of LSB',W/2+42,H-80);x.fillText('Full USB',W/2+148,H-118);
+  x.fillStyle='#888';x.font='12px Poppins';x.textAlign='center';x.fillText('Spectrum of VSB Signal',W/2,H-4);
+}
+function drawBlock(id,cfg){
+  const cv=document.getElementById(id);if(!cv)return;
+  const x=cv.getContext('2d'),W=cv.width,H=cv.height;
+  x.fillStyle='#0d0720';x.fillRect(0,0,W,H);
+  function arr(x1,y1,x2,y2){
+    x.strokeStyle='#bbb';x.lineWidth=1.8;x.beginPath();x.moveTo(x1,y1);x.lineTo(x2,y2);x.stroke();
+    const a=Math.atan2(y2-y1,x2-x1);x.fillStyle='#bbb';x.beginPath();
+    x.moveTo(x2,y2);x.lineTo(x2-9*Math.cos(a-.4),y2-9*Math.sin(a-.4));x.lineTo(x2-9*Math.cos(a+.4),y2-9*Math.sin(a+.4));x.closePath();x.fill();
+  }
+  cfg.arrows.forEach(a=>arr(a[0],a[1],a[2],a[3]));
+  cfg.blocks.forEach(b=>{
+    const g=x.createLinearGradient(b[0],b[1],b[0]+b[2],b[1]+b[3]);
+    g.addColorStop(0,b[4]);g.addColorStop(1,b[5]);
+    x.fillStyle=g;x.beginPath();x.roundRect(b[0],b[1],b[2],b[3],6);x.fill();
+    x.strokeStyle='rgba(168,85,247,0.45)';x.lineWidth=1.5;x.beginPath();x.roundRect(b[0],b[1],b[2],b[3],6);x.stroke();
+    x.fillStyle='#fff';x.font='bold 12px Poppins';x.textAlign='center';
+    b[6].split('\n').forEach((l,i,a)=>x.fillText(l,b[0]+b[2]/2,b[1]+b[3]/2-(a.length-1)*8+i*17));
+  });
+  cfg.labels.forEach(l=>{x.fillStyle=l[3]||'#bbb';x.font=l[4]||'11px Poppins';x.textAlign=l[5]||'left';x.fillText(l[0],l[1],l[2]);});
+}
+function initDiagrams(){
+  drawSpectrum('c1');
+  drawBlock('c2',{
+    arrows:[[8,68,88,68],[210,68,298,68],[430,68,520,68],[150,110,150,96]],
+    blocks:[[88,38,122,60,'#92400e','#b45309','Product\nModulator'],[298,38,132,60,'#92400e','#b45309','BPF\nH(f)']],
+    labels:[['m(t)',10,62],['Message',10,76],['DSB-SC',215,58],['wave v(t)',215,72],['S(t)',432,62],['VSB wave',432,76],['Ac cos(2πfct)',150,128,'#999','11px Poppins','center']]
+  });
+  drawBlock('c3',{
+    arrows:[[8,68,88,68],[210,68,298,68],[430,68,520,68],[150,110,150,96]],
+    blocks:[[88,38,122,60,'#065f46','#047857','Product\nModulator'],[298,38,132,60,'#065f46','#047857','LPF']],
+    labels:[['s(t)',10,62],['VSBSC wave',10,76],['v(t)',215,64],['v₀(t)',432,62],['Output',432,76],['c(t) = Ac cos(2πfct)',150,128,'#999','11px Poppins','center']]
+  });
+}
+
+window.addEventListener('load',()=>{
+  initDiagrams();
+  if(window.MathJax)MathJax.typesetPromise([pages[0]]);
+});
+</script>
+</body>
+</html>

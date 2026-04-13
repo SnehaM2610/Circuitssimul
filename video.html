@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;background:#222;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif;}
+#wrapper{position:relative;background:#fffdf0;}
+#mainCanvas{display:block;}
+#overlay{position:absolute;top:0;left:0;pointer-events:none;}
+#controls{width:100%;background:#fff8dc;border-top:2px solid #e8b84b;display:flex;align-items:center;gap:10px;flex-shrink:0;}
+#progWrap{flex:1;background:#f0d080;border-radius:4px;cursor:pointer;position:relative;}
+#progFill{height:100%;background:#e67e22;border-radius:4px;width:0%;transition:width .2s;}
+.cbtn{background:#fff;border:2px solid #e67e22;color:#e67e22;border-radius:10px;cursor:pointer;font-weight:700;white-space:nowrap;}
+.cbtn:hover{background:#fef3e2;}
+#slideNum{color:#b07020;font-weight:700;white-space:nowrap;}
+#vdot{border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s;}
+#vdot.on{background:#27ae60;animation:vp .9s infinite;}
+@keyframes vp{0%,100%{opacity:1;}50%{opacity:.2;}}
+</style>
+</head>
+<body>
+<div id="wrapper">
+  <canvas id="mainCanvas"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="controls">
+    <div id="vdot"></div>
+    <button class="cbtn" id="prevBtn" onclick="navSlide(-1)">&#9664;</button>
+    <button class="cbtn" id="playBtn" onclick="togglePlay()">&#9654; Play</button>
+    <button class="cbtn" id="nextBtn" onclick="navSlide(1)">&#9654;</button>
+    <div id="progWrap" onclick="seekBar(event)"><div id="progFill"></div></div>
+    <span id="slideNum">1 / 7</span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// CORE SETUP
+// ═══════════════════════════════════════════════════════
+const mc = document.getElementById('mainCanvas');
+const oc = document.getElementById('overlay');
+const M = mc.getContext('2d');
+const O = oc.getContext('2d');
+const wrap = document.getElementById('wrapper');
+const ctrl = document.getElementById('controls');
+
+let VW = 1280, VH = 720, DPR = 1;
+const ASPECT = 16 / 9;
+const TOTAL = 7;
+let cur = 0, playing = false;
+let animRAF = null;
+let slideTimers = [];
+let voiceReady = false;
+const synth = window.speechSynthesis;
+let utt = null;
+let speakPending = null;
+let navLock = false;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const ww = window.innerWidth, wh = window.innerHeight - 2;
+  const ctrlH = Math.round(ww * 0.04);
+  let cw = ww, ch = Math.round(ww / ASPECT);
+  if (ch + ctrlH > wh) { ch = wh - ctrlH; cw = Math.round(ch * ASPECT); }
+  VW = cw; VH = ch;
+  wrap.style.width = cw + 'px';
+  wrap.style.height = (ch + ctrlH) + 'px';
+  [mc, oc].forEach(cv => {
+    cv.width = cw * DPR; cv.height = ch * DPR;
+    cv.style.width = cw + 'px'; cv.style.height = ch + 'px';
+    cv.style.position = 'absolute'; cv.style.top = '0'; cv.style.left = '0';
+  });
+  ctrl.style.position = 'absolute';
+  ctrl.style.bottom = '0'; ctrl.style.left = '0'; ctrl.style.width = cw + 'px';
+  ctrl.style.height = ctrlH + 'px';
+  ctrl.style.padding = '0 ' + Math.round(cw * 0.012) + 'px';
+  ctrl.style.gap = Math.round(cw * 0.008) + 'px';
+  document.getElementById('progWrap').style.height = Math.round(ctrlH * 0.3) + 'px';
+  const fs = Math.round(ctrlH * 0.34);
+  document.querySelectorAll('.cbtn').forEach(b => {
+    b.style.fontSize = fs + 'px'; b.style.padding = Math.round(fs * .28) + 'px ' + Math.round(fs * .7) + 'px';
+  });
+  document.getElementById('slideNum').style.fontSize = fs + 'px';
+  document.getElementById('vdot').style.width = document.getElementById('vdot').style.height = Math.round(ctrlH * 0.3) + 'px';
+  [M, O].forEach(ctx => ctx.setTransform(DPR, 0, 0, DPR, 0, 0));
+}
+
+window.addEventListener('resize', () => { resize(); redrawCurrent(); });
+
+// ═══════════════════════════════════════════════════════
+// VOICE INIT
+// ═══════════════════════════════════════════════════════
+function getVoice() {
+  const vs = synth.getVoices();
+  return vs.find(v => /google uk english female/i.test(v.name)) ||
+         vs.find(v => /google us english/i.test(v.name)) ||
+         vs.find(v => /samantha/i.test(v.name)) ||
+         vs.find(v => v.lang === 'en-US' && !v.localService) ||
+         vs.find(v => v.lang.startsWith('en')) || vs[0];
+}
+
+synth.onvoiceschanged = () => {
+  voiceReady = true;
+  if (speakPending) { speak(speakPending); speakPending = null; }
+};
+// Also try immediately
+setTimeout(() => { if (synth.getVoices().length > 0) { voiceReady = true; } }, 200);
+
+function speak(text) {
+  if (!voiceReady || synth.getVoices().length === 0) { speakPending = text; return; }
+  synth.cancel();
+  setTimeout(() => {
+    utt = new SpeechSynthesisUtterance(text);
+    utt.rate = 0.88; utt.pitch = 1.0; utt.volume = 1;
+    const v = getVoice(); if (v) utt.voice = v;
+    document.getElementById('vdot').classList.add('on');
+    utt.onend = () => {
+      if (navLock) return;
+      document.getElementById('vdot').classList.remove('on');
+      if (playing && cur < TOTAL - 1) {
+        setTimeout(() => { cur++; showSlide(cur); speak(VO[cur]); }, 500);
+      } else { playing = false; document.getElementById('playBtn').innerHTML = '&#9654; Play'; }
+    };
+    utt.onerror = () => document.getElementById('vdot').classList.remove('on');
+    synth.speak(utt);
+  }, 80);
+}
+
+// ═══════════════════════════════════════════════════════
+// DRAW UTILITIES  (scale-aware)
+// ═══════════════════════════════════════════════════════
+function px(v) { return v * VW / 1280; }   // scale from 1280 base
+function py(v) { return v * VH / 720; }    // scale from 720 base
+
+function clearAll() {
+  M.clearRect(0, 0, VW, VH);
+  O.clearRect(0, 0, VW, VH);
+}
+
+function drawBG() {
+  M.fillStyle = '#fffdf0'; M.fillRect(0, 0, VW, VH);
+  M.strokeStyle = '#f0e8c0'; M.lineWidth = px(1);
+  const gs = px(44);
+  for (let x = 0; x < VW; x += gs) { M.beginPath(); M.moveTo(x, 0); M.lineTo(x, VH); M.stroke(); }
+  for (let y = 0; y < VH; y += gs) { M.beginPath(); M.moveTo(0, y); M.lineTo(VW, y); M.stroke(); }
+}
+
+function rr(ctx, x, y, w, h, r, fill, stroke, lw) {
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || px(2.5); ctx.stroke(); }
+}
+
+function txt(ctx, text, x, y, size, col, weight, align, baseline) {
+  ctx.font = `${weight || '400'} ${px(size)}px Segoe UI`;
+  ctx.fillStyle = col; ctx.textAlign = align || 'left';
+  ctx.textBaseline = baseline || 'middle'; ctx.fillText(text, x, y);
+}
+
+function arrowLine(ctx, x1, y1, x2, y2, col, lw) {
+  const a = Math.atan2(y2 - y1, x2 - x1), hs = px(12);
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw || px(2.5);
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1);
+  ctx.lineTo(x2 - Math.cos(a) * hs, y2 - Math.sin(a) * hs); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - hs * Math.cos(a - 0.42), y2 - hs * Math.sin(a - 0.42));
+  ctx.lineTo(x2 - hs * Math.cos(a + 0.42), y2 - hs * Math.sin(a + 0.42));
+  ctx.closePath(); ctx.fill();
+}
+
+function dashedLine(ctx, x1, y1, x2, y2, col, lw, dash) {
+  ctx.setLineDash(dash || [px(10), px(6)]);
+  ctx.strokeStyle = col; ctx.lineWidth = lw || px(2);
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function circ(ctx, x, y, r, fill, stroke, lw) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lw || px(2.5); ctx.stroke(); }
+}
+
+function pill(ctx, text, x, y, bgcol, textcol) {
+  ctx.font = `bold ${px(22)}px Segoe UI`;
+  const tw = ctx.measureText(text).width;
+  rr(ctx, x, y - py(16), tw + px(24), py(32), py(16), bgcol, null, 0);
+  ctx.fillStyle = textcol || '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + px(12), y);
+}
+
+function blockBox(ctx, label, sub, x, y, w, h, fill, border) {
+  rr(ctx, x, y, w, h, px(10), fill, border, px(3));
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `bold ${px(22)}px Segoe UI`; ctx.fillStyle = '#1a1a2e';
+  ctx.fillText(label, x + w / 2, sub ? y + h * 0.38 : y + h / 2);
+  if (sub) {
+    ctx.font = `italic ${px(17)}px Segoe UI`; ctx.fillStyle = '#555';
+    ctx.fillText(sub, x + w / 2, y + h * 0.68);
+  }
+}
+
+// Timed scheduler
+function at(fn, t) { const id = setTimeout(fn, t); slideTimers.push(id); return id; }
+
+// Animated line draw
+function animLine(ctx, x1, y1, x2, y2, col, lw, delay, dur) {
+  const steps = Math.max(10, Math.round(dur / 16));
+  for (let i = 1; i <= steps; i++) {
+    at(((ii) => () => {
+      const p = ii / steps;
+      ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 + (x2 - x1) * p, y1 + (y2 - y1) * p); ctx.stroke();
+    })(i), delay + (dur / steps) * i);
+  }
+  return delay + dur;
+}
+
+function animArrow(ctx, x1, y1, x2, y2, col, lw, delay, dur) {
+  const d = animLine(ctx, x1, y1, x2, y2, col, lw, delay, dur);
+  at(() => arrowLine(ctx, x1, y1, x2, y2, col, lw), d + 20);
+  return d + 60;
+}
+
+function animBlock(ctx, label, sub, x, y, w, h, fill, border, delay, dur) {
+  const d = animLine(ctx, x, y, x + w, y, border, px(3), delay, dur * 0.25);
+  animLine(ctx, x + w, y, x + w, y + h, border, px(3), delay + dur * 0.25, dur * 0.25);
+  animLine(ctx, x + w, y + h, x, y + h, border, px(3), delay + dur * 0.5, dur * 0.25);
+  animLine(ctx, x, y + h, x, y, border, px(3), delay + dur * 0.75, dur * 0.25);
+  at(() => blockBox(ctx, label, sub, x, y, w, h, fill, border), delay + dur + 40);
+  return delay + dur + 80;
+}
+
+function animCirc(ctx, x, y, r, fill, stroke, delay, dur) {
+  const steps = 48;
+  for (let i = 1; i <= steps; i++) {
+    at(((ii) => () => {
+      ctx.beginPath(); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (ii / steps));
+      ctx.strokeStyle = stroke; ctx.lineWidth = px(3); ctx.stroke();
+    })(i), delay + (dur / steps) * i);
+  }
+  at(() => circ(ctx, x, y, r, fill, stroke, px(3)), delay + dur + 20);
+  return delay + dur + 60;
+}
+
+// Word-by-word text that DOES NOT erase canvas — appends per word
+// Each call returns end time. textQueue tracks spans for redraw.
+const textQueue = []; // {words, x, y, sz, col, wt, wpm}
+function wbWrite(words, x, y, sz, col, wt, delay, wpm) {
+  const mspw = 60000 / (wpm || 125);
+  textQueue.push({ words, x, y, sz, col, wt });
+  const idx = textQueue.length - 1;
+  words.forEach((w, i) => {
+    at(() => {
+      const entry = textQueue[idx];
+      const full = entry.words.slice(0, i + 1).join(' ');
+      // clear only this text row
+      const ctx = M;
+      ctx.font = `${entry.wt || '400'} ${px(entry.sz)}px Segoe UI`;
+      const rowH = px(entry.sz) * 1.5;
+      // repaint bg strip
+      ctx.fillStyle = '#fffdf0'; ctx.fillRect(entry.x - px(2), entry.y - rowH * 0.7, VW - entry.x + px(4), rowH);
+      // repaint grid on strip
+      ctx.strokeStyle = '#f0e8c0'; ctx.lineWidth = px(1);
+      const gs = px(44);
+      for (let gx = Math.floor((entry.x - px(2)) / gs) * gs; gx < VW; gx += gs) {
+        ctx.beginPath(); ctx.moveTo(gx, entry.y - rowH * 0.7); ctx.lineTo(gx, entry.y + rowH * 0.8); ctx.stroke();
+      }
+      ctx.font = `${entry.wt || '400'} ${px(entry.sz)}px Segoe UI`;
+      ctx.fillStyle = entry.col; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(full, entry.x, entry.y);
+    }, delay + i * mspw);
+  });
+  return delay + words.length * mspw + 80;
+}
+
+// ═══════════════════════════════════════════════════════
+// EQUATION RENDERER (canvas path-based — no Unicode dots)
+// ═══════════════════════════════════════════════════════
+function drawEquation(ctx, x, y, sz) {
+  const s = px(sz);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  // a2 y''(t) + a1 y'(t) + a0 y(t) = b0 u(t)
+  const parts = [
+    { t: 'a', col: '#8e44ad', w: false },
+    { t: '₂', col: '#8e44ad', sub: true },
+    { t: ' y', col: '#c0392b', w: true },
+    { t: "''", col: '#c0392b', sup: true },
+    { t: '(t)  +  a', col: '#8e44ad', w: true },
+    { t: '₁', col: '#8e44ad', sub: true },
+    { t: ' y', col: '#c0392b', w: true },
+    { t: "'", col: '#c0392b', sup: true },
+    { t: '(t)  +  a', col: '#8e44ad', w: true },
+    { t: '₀', col: '#8e44ad', sub: true },
+    { t: ' y(t)  =  b', col: '#c0392b', w: true },
+    { t: '₀', col: '#8e44ad', sub: true },
+    { t: ' u(t)', col: '#2980b9', w: true },
+  ];
+  let cx2 = x;
+  parts.forEach(p => {
+    ctx.font = p.sub || p.sup ? `bold ${s * 0.7}px Courier New` : `bold ${s}px Courier New`;
+    ctx.fillStyle = p.col;
+    const yoff = p.sub ? py(6) : p.sup ? -py(8) : 0;
+    ctx.fillText(p.t, cx2, y + yoff);
+    cx2 += ctx.measureText(p.t).width + (p.w ? 0 : 0);
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// HIGHLIGHT OVERLAY
+// ═══════════════════════════════════════════════════════
+let hlActive = null;
+function highlight(x, y, w, h, col, delay) {
+  at(() => {
+    O.clearRect(0, 0, VW, VH);
+    O.strokeStyle = col || '#f39c12';
+    O.lineWidth = px(4);
+    O.setLineDash([px(8), px(5)]);
+    O.beginPath(); O.roundRect(x - px(6), y - py(6), w + px(12), h + py(12), px(8)); O.stroke();
+    O.setLineDash([]);
+    // pulsing glow
+    O.strokeStyle = col ? col + '44' : '#f39c1244';
+    O.lineWidth = px(10);
+    O.beginPath(); O.roundRect(x - px(10), y - py(10), w + px(20), h + py(20), px(12)); O.stroke();
+    hlActive = { x, y, w, h, col };
+  }, delay);
+}
+function clearHL(delay) { at(() => { O.clearRect(0, 0, VW, VH); hlActive = null; }, delay); }
+
+// ═══════════════════════════════════════════════════════
+// SLIDES
+// ═══════════════════════════════════════════════════════
+
+// ─── SLIDE 0: TITLE ──────────────────────────────────────────────────
+function buildS0() {
+  drawBG();
+  // border
+  at(() => {
+    M.strokeStyle = '#e67e22'; M.lineWidth = px(6); M.strokeRect(px(18), py(18), VW - px(36), VH - py(36));
+    M.strokeStyle = '#f0c060'; M.lineWidth = px(1.5); M.strokeRect(px(32), py(32), VW - px(64), VH - py(64));
+  }, 100);
+
+  // Decorative arc
+  at(() => {
+    M.strokeStyle = '#fde68a'; M.lineWidth = px(3);
+    M.beginPath(); M.arc(VW / 2, VH * 0.38, px(260), Math.PI * 1.1, Math.PI * 1.9); M.stroke();
+  }, 200);
+
+  let d = 400;
+  // Title word by word
+  d = wbWrite(['CONTROL', 'SYSTEMS'], VW * 0.22, VH * 0.32, 72, '#c0392b', 'bold', d, 55);
+  at(() => {
+    M.strokeStyle = '#e67e22'; M.lineWidth = px(4);
+    M.beginPath(); M.moveTo(VW * 0.18, VH * 0.44); M.lineTo(VW * 0.82, VH * 0.44); M.stroke();
+  }, d); d += 300;
+  d = wbWrite('Open-Loop  vs  Closed-Loop  Control  Systems'.split('  '), VW * 0.5, VH * 0.53, 38, '#2c3e50', '600', d, 75);
+  d += 300;
+  d = wbWrite('B.Tech ECE  ·  Unit 1  ·  Lecture 1'.split(' '), VW * 0.5, VH * 0.66, 24, '#888', '400', d, 90);
+}
+
+// ─── SLIDE 1: DEFINITION ─────────────────────────────────────────────
+function buildS1() {
+  drawBG();
+  at(() => pill(M, 'What is a Control System?', px(40), VH * 0.1, '#c0392b', '#fff'), 100);
+  let d = 300;
+
+  d = wbWrite('A  control  system  is  a  system  whose  behaviour  is  described  by  differential  equations.'.split('  '), px(56), VH * 0.19, 26, '#2c3e50', '400', d, 115);
+  d += 80;
+  d = wbWrite('It  regulates  and  manages  devices  and  processes  through  control  loops.'.split('  '), px(56), VH * 0.27, 26, '#2c3e50', '400', d, 115);
+  d += 300;
+
+  // Equation box — drawn after explanation
+  at(() => {
+    rr(M, VW * 0.06, VH * 0.35, VW * 0.88, VH * 0.15, px(12), '#fff8e6', '#e67e22', px(3));
+    txt(M, 'Governing Differential Equation:', px(60), VH * 0.4, 20, '#e67e22', 'bold');
+  }, d);
+  at(() => drawEquation(M, VW * 0.12, VH * 0.46, 28), d + 300);
+  at(() => {
+    txt(M, 'y(t) = output     u(t) = input     a₀,a₁,a₂,b₀ = system constants', VW * 0.5, VH * 0.49, 18, '#777', '400', 'center');
+  }, d + 700);
+  d += 1000;
+
+  // Highlight equation
+  highlight(VW * 0.06, VH * 0.35, VW * 0.88, VH * 0.15, '#e67e22', d);
+  d = wbWrite('This  equation  governs  how  the  output  responds  to  the  input  —  that  is  what  makes  it  a  control  system.'.split('  '), px(56), VH * 0.58, 25, '#555', '400', d, 115);
+  clearHL(d); d += 300;
+
+  // Two types
+  d = wbWrite('Two  major  classifications:'.split('  '), px(56), VH * 0.67, 26, '#2c3e50', '700', d, 115);
+  d += 100;
+  at(() => {
+    blockBox(M, 'Open-Loop', 'No feedback path', VW * 0.06, VH * 0.73, VW * 0.4, VH * 0.16, '#fff3e0', '#e67e22');
+    blockBox(M, 'Closed-Loop', 'Feedback path present', VW * 0.54, VH * 0.73, VW * 0.4, VH * 0.16, '#eaf4fb', '#2980b9');
+    txt(M, 'Simple · Fast · Low cost', VW * 0.26, VH * 0.93, 19, '#e67e22', '600', 'center');
+    txt(M, 'Accurate · Auto-corrects · Complex', VW * 0.74, VH * 0.93, 19, '#2980b9', '600', 'center');
+  }, d);
+}
+
+// ─── SLIDE 2: OPEN-LOOP BLOCK DIAGRAM ─────────────────────────────────
+function buildS2() {
+  drawBG();
+  at(() => pill(M, 'Open-Loop Control System', px(40), VH * 0.08, '#e67e22', '#fff'), 100);
+  let d = 300;
+
+  d = wbWrite('The  output  is  NOT  compared  with  the  desired  input.  The  signal  flows  in  one  direction  only  —  no  correction  is  possible.'.split('  '), px(56), VH * 0.16, 25, '#2c3e50', '400', d, 110);
+  d += 300;
+
+  // Block diagram — layout perfectly computed
+  const by = VH * 0.3, bh = VH * 0.14;
+  const bw = VW * 0.17;
+  const bx1 = VW * 0.08, bx2 = VW * 0.3, bx3 = VW * 0.57;
+  const mid = by + bh / 2;
+  const arrowY = mid;
+
+  // Input label
+  at(() => {
+    txt(M, 'r(t)', bx1, arrowY - py(18), 24, '#e67e22', 'bold');
+    txt(M, 'Reference', bx1, arrowY + py(4), 16, '#888', '400');
+    txt(M, 'Input', bx1 + px(12), arrowY + py(20), 16, '#888', '400');
+  }, d);
+
+  // Arrow → Controller
+  let ad = animArrow(M, bx1 + px(70), arrowY, bx2, arrowY, '#e67e22', px(3), d + 200, 350);
+  // Controller block
+  ad = animBlock(M, 'Controller', 'G_c(s)', bx2, by, bw, bh, '#fff3e0', '#e67e22', ad, 600);
+  highlight(bx2, by, bw, bh, '#e67e22', ad - 100);
+  d = wbWrite(['The', 'controller', 'processes', 'input', 'and', 'generates', 'a', 'control', 'signal', 'u(t).'], px(56), VH * 0.52, 23, '#555', '400', ad - 100, 120);
+  clearHL(d);
+
+  // u(t) label + arrow → Plant
+  at(() => txt(M, 'u(t)', bx2 + bw / 2, by - py(16), 20, '#777', '600', 'center'), ad);
+  ad = animArrow(M, bx2 + bw, arrowY, bx3, arrowY, '#e67e22', px(3), ad, 350);
+  // Plant block
+  ad = animBlock(M, 'Plant', 'G_p(s)', bx3, by, bw, bh, '#fff3e0', '#e67e22', ad, 600);
+  highlight(bx3, by, bw, bh, '#e67e22', ad - 100);
+  d = wbWrite(['The', 'plant', 'is', 'the', 'system', 'being', 'controlled', '—', 'motor,', 'heater,', 'or', 'any', 'process.'], px(56), VH * 0.52, 23, '#555', '400', ad - 100, 115);
+  clearHL(d);
+
+  // Output arrow + label
+  ad = animArrow(M, bx3 + bw, arrowY, VW * 0.86, arrowY, '#e67e22', px(3), ad, 350);
+  at(() => {
+    txt(M, 'c(t)', VW * 0.87, arrowY - py(18), 24, '#e67e22', 'bold');
+    txt(M, 'Output', VW * 0.87, arrowY + py(4), 16, '#888', '400');
+  }, ad);
+
+  // NO FEEDBACK cross-line
+  at(() => {
+    const fbY = by + bh + py(30);
+    M.strokeStyle = '#e74c3c'; M.lineWidth = px(2); M.setLineDash([px(14), px(7)]);
+    M.beginPath(); M.moveTo(bx2 - px(20), fbY); M.lineTo(VW * 0.86, fbY); M.stroke();
+    M.setLineDash([]);
+    // Cross symbol
+    const cx = (bx2 + VW * 0.86) / 2;
+    M.strokeStyle = '#e74c3c'; M.lineWidth = px(3);
+    M.beginPath(); M.moveTo(cx - px(16), fbY - py(12)); M.lineTo(cx + px(16), fbY + py(12)); M.stroke();
+    M.beginPath(); M.moveTo(cx + px(16), fbY - py(12)); M.lineTo(cx - px(16), fbY + py(12)); M.stroke();
+    txt(M, '✗  No Feedback Path  —  Output is IGNORED', cx, fbY + py(22), 20, '#e74c3c', 'bold', 'center');
+  }, ad + 200);
+  d = ad + 600;
+
+  // TOASTER EXAMPLE — drawn after narration cue
+  d = wbWrite('Real-world  example:  A  toaster.  You  set  the  timer.  It  heats  for  that  duration  and  stops.  It  does  not  know  if  the  toast  is  done.'.split('  '), px(56), VH * 0.59, 24, '#555', '400', d, 108);
+  d += 200;
+
+  // Toaster drawing
+  at(() => drawToaster(VW * 0.52, VH * 0.58, VW * 0.2, VH * 0.34), d);
+  d += 400;
+
+  // Animated bread drop
+  for (let i = 0; i <= 12; i++) {
+    at(((ii) => () => {
+      const tx = VW * 0.52, ty = VH * 0.58, tw = VW * 0.2, th = VH * 0.34;
+      const slotY = ty + th * 0.18 + ii * py(3);
+      // bread slices
+      M.fillStyle = '#f5cba7'; M.fillRect(tx + tw * 0.2, slotY, tw * 0.22, th * 0.52 - ii * py(3));
+      M.fillStyle = '#e59866'; M.fillRect(tx + tw * 0.2, slotY, tw * 0.22, py(7));
+      M.fillStyle = '#f5cba7'; M.fillRect(tx + tw * 0.57, slotY, tw * 0.22, th * 0.52 - ii * py(3));
+      M.fillStyle = '#e59866'; M.fillRect(tx + tw * 0.57, slotY, tw * 0.22, py(7));
+    })(i), d + i * 70);
+  }
+  d += 12 * 70 + 200;
+
+  // Heat waves
+  for (let cycle = 0; cycle < 8; cycle++) {
+    at(((cc) => () => {
+      const tx = VW * 0.52, ty = VH * 0.58, tw = VW * 0.2, th = VH * 0.34;
+      for (let slot = 0; slot < 2; slot++) {
+        const hx = tx + tw * (slot === 0 ? 0.31 : 0.68);
+        for (let k = 0; k < 4; k++) {
+          M.strokeStyle = `rgba(231,76,60,${0.85 - k * 0.18})`; M.lineWidth = px(2);
+          const baseY = ty + th * 0.15 - cc * py(5);
+          M.beginPath(); M.moveTo(hx + k * px(6), baseY);
+          M.quadraticCurveTo(hx + k * px(6) + px(8), baseY - py(14), hx + k * px(6), baseY - py(28)); M.stroke();
+        }
+      }
+    })(cycle), d + cycle * 180);
+  }
+  d += 8 * 180 + 200;
+
+  // Toast pops up
+  at(() => {
+    const tx = VW * 0.52, ty = VH * 0.58, tw = VW * 0.2, th = VH * 0.34;
+    M.fillStyle = '#a04000'; M.fillRect(tx + tw * 0.2, ty - py(26), tw * 0.22, th * 0.35);
+    M.fillStyle = '#a04000'; M.fillRect(tx + tw * 0.57, ty - py(26), tw * 0.22, th * 0.35);
+    rr(M, tx + tw * 0.05, ty - py(44), tw * 0.9, py(32), py(8), '#fdecea', '#e74c3c', px(2));
+    txt(M, '🔥 Burnt!  No sensor  →  No feedback  →  No correction', tx + tw * 0.5, ty - py(28), 17, '#c0392b', 'bold', 'center');
+  }, d);
+
+  at(() => {
+    rr(M, px(40), VH * 0.55, VW * 0.42, py(36), py(10), '#fffbe6', '#e67e22', px(2));
+    txt(M, '⚠  Open-loop cannot correct output — quality not guaranteed', px(60), VH * 0.572, 20, '#a04000', '600');
+  }, d + 400);
+}
+
+function drawToaster(tx, ty, tw, th) {
+  // body
+  rr(M, tx, ty + th * 0.1, tw, th * 0.8, px(12), '#b0b0b0', '#7f8c8d', px(3));
+  // highlight stripe
+  rr(M, tx + tw * 0.05, ty + th * 0.12, tw * 0.9, th * 0.08, px(4), '#d0d0d0', null, 0);
+  // slots
+  rr(M, tx + tw * 0.18, ty + th * 0.18, tw * 0.22, th * 0.52, px(4), '#444', '#333', px(2));
+  rr(M, tx + tw * 0.55, ty + th * 0.18, tw * 0.22, th * 0.52, px(4), '#444', '#333', px(2));
+  // timer dial
+  circ(M, tx + tw * 0.82, ty + th * 0.7, tw * 0.1, '#888', '#555', px(2));
+  txt(M, '⏱', tx + tw * 0.82, ty + th * 0.7, 18, '#fff', '', 'center');
+  // legs
+  rr(M, tx + tw * 0.1, ty + th * 0.9, tw * 0.08, th * 0.1, px(3), '#666', null, 0);
+  rr(M, tx + tw * 0.82, ty + th * 0.9, tw * 0.08, th * 0.1, px(3), '#666', null, 0);
+  txt(M, 'TOASTER', tx + tw / 2, ty + th * 1.05, 18, '#555', 'bold', 'center');
+}
+
+// ─── SLIDE 3: CLOSED-LOOP ─────────────────────────────────────────────
+function buildS3() {
+  drawBG();
+  at(() => pill(M, 'Closed-Loop Control System', px(40), VH * 0.08, '#1a7a4a', '#fff'), 100);
+  let d = 300;
+
+  d = wbWrite('The  output  is  continuously  monitored  and  fed  back  to  the  comparator.  The  error  drives  automatic  correction.'.split('  '), px(56), VH * 0.16, 25, '#2c3e50', '400', d, 112);
+  d += 300;
+
+  // Block diagram layout
+  const by = VH * 0.3, bh = VH * 0.13;
+  const bw = VW * 0.16;
+  const compX = VW * 0.14, compY = by + bh / 2, compR = py(34);
+  const gbx = VW * 0.28, pbx = VW * 0.52, outBx = VW * 0.74;
+
+  // Input
+  at(() => {
+    txt(M, 'r(t)', VW * 0.04, compY - py(18), 23, '#27ae60', 'bold');
+    txt(M, 'Desired', VW * 0.035, compY + py(2), 15, '#888');
+    txt(M, 'Input', VW * 0.04, compY + py(17), 15, '#888');
+  }, d);
+  let ad = animArrow(M, VW * 0.085, compY, compX - compR, compY, '#27ae60', px(3), d + 100, 300);
+
+  // Comparator circle
+  ad = animCirc(M, compX, compY, compR, '#fdecea', '#e74c3c', ad, 500);
+  at(() => {
+    txt(M, 'Σ', compX, compY - py(3), 32, '#e74c3c', 'bold', 'center');
+    txt(M, '+', compX - compR + px(4), compY - compR * 0.5, 18, '#27ae60', 'bold');
+    txt(M, '−', compX - compR * 0.5, compY + compR - py(4), 20, '#e74c3c', 'bold');
+  }, ad);
+
+  highlight(compX - compR - px(4), compY - compR - py(4), compR * 2 + px(8), compR * 2 + py(8), '#e74c3c', ad);
+  d = wbWrite(['The', 'comparator', 'Σ', 'computes', 'the', 'error:', 'e(t) = r(t) − c(t)', '—', 'difference', 'between', 'desired', 'and', 'actual', 'output.'], px(56), VH * 0.52, 23, '#555', '400', ad, 115);
+  clearHL(d); d += 200;
+
+  // error label
+  at(() => { txt(M, 'e(t) = r(t) − c(t)', compX - px(30), compY - compR - py(18), 18, '#e74c3c', 'bold'); }, ad);
+
+  // Controller
+  ad = animArrow(M, compX + compR, compY, gbx, by + bh / 2, '#2980b9', px(3), d, 350);
+  at(() => txt(M, 'e(t)', gbx - px(34), compY - py(14), 19, '#e74c3c', '600'), ad - 200);
+  ad = animBlock(M, 'Controller', 'G_c(s)', gbx, by, bw, bh, '#eaf4fb', '#2980b9', ad, 550);
+  highlight(gbx, by, bw, bh, '#2980b9', ad - 100);
+  d = wbWrite(['The', 'controller', 'processes', 'the', 'error', 'and', 'generates', 'control', 'signal', 'u(t)', 'to', 'drive', 'the', 'plant.'], px(56), VH * 0.52, 23, '#555', '400', ad - 100, 115);
+  clearHL(d);
+
+  // u(t) label
+  at(() => txt(M, 'u(t)', gbx + bw / 2, by - py(14), 19, '#777', '600', 'center'), ad);
+
+  // Plant
+  ad = animArrow(M, gbx + bw, by + bh / 2, pbx, by + bh / 2, '#2980b9', px(3), ad, 300);
+  ad = animBlock(M, 'Plant', 'G_p(s)', pbx, by, bw, bh, '#eaf4fb', '#2980b9', ad, 550);
+  highlight(pbx, by, bw, bh, '#2980b9', ad - 100);
+  d = wbWrite(['The', 'plant', 'receives', 'u(t)', 'and', 'produces', 'output', 'c(t)', '—', 'the', 'actual', 'response', 'of', 'the', 'system.'], px(56), VH * 0.52, 23, '#555', '400', ad - 100, 112);
+  clearHL(d);
+
+  // Output
+  ad = animArrow(M, pbx + bw, by + bh / 2, outBx, by + bh / 2, '#27ae60', px(3), ad, 300);
+  at(() => {
+    rr(M, outBx, by, bw * 0.85, bh, px(10), '#e8f8f5', '#27ae60', px(3));
+    txt(M, 'Output', outBx + bw * 0.425, by + bh * 0.38, 22, '#1a7a4a', 'bold', 'center');
+    txt(M, 'c(t)', outBx + bw * 0.425, by + bh * 0.72, 18, '#555', '600', 'center');
+  }, ad); d = ad + 200;
+
+  // Feedback path — DASHED green, clearly drawn
+  at(() => {
+    const fbY = by + bh + py(44);
+    const outMidX = outBx + bw * 0.425;
+    M.setLineDash([px(12), px(7)]);
+    M.strokeStyle = '#27ae60'; M.lineWidth = px(3); M.lineCap = 'round';
+    M.beginPath();
+    M.moveTo(outMidX, by + bh);
+    M.lineTo(outMidX, fbY);
+    M.lineTo(compX, fbY);
+    M.lineTo(compX, compY + compR);
+    M.stroke(); M.setLineDash([]);
+    arrowLine(M, compX, fbY + py(8), compX, compY + compR, '#27ae60', px(3));
+    // Label
+    rr(M, compX + px(20), fbY - py(14), VW * 0.5, py(28), py(8), '#e8f8f5', '#27ae60', px(2));
+    txt(M, '← Feedback Path: output c(t) returned to comparator', compX + px(30), fbY, 19, '#1a7a4a', '600');
+  }, d);
+  d += 400;
+
+  d = wbWrite('This  feedback  loop  is  what  makes  the  system  self-correcting  —  the  output  continuously  adjusts  until  it  matches  the  desired  input.'.split('  '), px(56), VH * 0.59, 24, '#1a7a4a', '600', d, 110);
+  d += 300;
+
+  // AC example
+  d = wbWrite('Real-world  example:  Air  conditioner.  Thermostat  senses  temperature,  compares  with  setpoint,  and  adjusts  cooling  automatically.'.split('  '), px(56), VH * 0.68, 24, '#555', '400', d, 108);
+  d += 200;
+  at(() => drawACExample(VW * 0.5, VH * 0.67, VW * 0.46, VH * 0.28), d);
+}
+
+function drawACExample(ax, ay, aw, ah) {
+  // Room outline
+  rr(M, ax, ay, aw, ah, px(8), '#eaf4fb', '#2980b9', px(2));
+  txt(M, 'Room', ax + aw * 0.5, ay + py(16), 18, '#888', '400', 'center');
+  // AC unit
+  rr(M, ax + aw * 0.04, ay + ah * 0.15, aw * 0.32, ah * 0.45, px(8), '#d6eaf8', '#2980b9', px(3));
+  txt(M, 'AC UNIT', ax + aw * 0.2, ay + ah * 0.33, 18, '#1a5276', 'bold', 'center');
+  txt(M, 'Set: 22°C', ax + aw * 0.2, ay + ah * 0.52, 15, '#2980b9', '600', 'center');
+  // Thermometer sensor
+  rr(M, ax + aw * 0.64, ay + ah * 0.2, aw * 0.28, ah * 0.55, px(8), '#fdecea', '#e74c3c', px(3));
+  txt(M, '🌡', ax + aw * 0.78, ay + ah * 0.38, 24, '#c0392b', '', 'center');
+  txt(M, 'Sensor', ax + aw * 0.78, ay + ah * 0.56, 15, '#888', '400', 'center');
+  txt(M, '25°C', ax + aw * 0.78, ay + ah * 0.68, 16, '#e74c3c', 'bold', 'center');
+  // Feedback arrow
+  arrowLine(M, ax + aw * 0.64, ay + ah * 0.42, ax + aw * 0.36, ay + ah * 0.42, '#27ae60', px(2.5));
+  txt(M, 'feeds back', ax + aw * 0.5, ay + ah * 0.33, 14, '#27ae60', '600', 'center');
+  // Error
+  txt(M, 'Error = 25−22 = 3°C → cools more!', ax + aw * 0.5, ay + ah * 0.82, 16, '#c0392b', 'bold', 'center');
+  // Cool air waves
+  for (let k = 0; k < 4; k++) {
+    M.strokeStyle = `rgba(41,128,185,${0.7 - k * 0.13})`; M.lineWidth = px(2);
+    M.beginPath();
+    M.moveTo(ax + aw * 0.04 - px(8) - k * px(10), ay + ah * 0.3 + k * py(8));
+    M.quadraticCurveTo(ax + aw * 0.04 - px(16) - k * px(10), ay + ah * 0.42 + k * py(8), ax + aw * 0.04 - px(8) - k * px(10), ay + ah * 0.52 + k * py(8));
+    M.stroke();
+  }
+}
+
+// ─── SLIDE 4: ADVANTAGES ──────────────────────────────────────────────
+function buildS4() {
+  drawBG();
+  at(() => pill(M, 'Advantages & Disadvantages', px(40), VH * 0.08, '#8e44ad', '#fff'), 100);
+  let d = 300;
+
+  // Column headers
+  at(() => {
+    rr(M, VW * 0.04, VH * 0.12, VW * 0.44, VH * 0.09, px(10), '#fff3e0', '#e67e22', px(3));
+    rr(M, VW * 0.52, VH * 0.12, VW * 0.44, VH * 0.09, px(10), '#eaf4fb', '#2980b9', px(3));
+    txt(M, 'Open-Loop System', VW * 0.26, VH * 0.165, 26, '#e67e22', 'bold', 'center');
+    txt(M, 'Closed-Loop System', VW * 0.74, VH * 0.165, 26, '#2980b9', 'bold', 'center');
+    M.strokeStyle = '#ddd'; M.lineWidth = px(1.5);
+    M.beginPath(); M.moveTo(VW / 2, VH * 0.12); M.lineTo(VW / 2, VH * 0.97); M.stroke();
+  }, d); d += 400;
+
+  const OL = [
+    ['✓', 'Simple design & low cost', '#27ae60'],
+    ['✓', 'Fast operation — no feedback delay', '#27ae60'],
+    ['✓', 'Easy to maintain and operate', '#27ae60'],
+    ['✓', 'Good when accuracy is not critical', '#27ae60'],
+    ['✗', 'Low accuracy and precision', '#e74c3c'],
+    ['✗', 'Cannot correct errors automatically', '#e74c3c'],
+    ['✗', 'Affected by external disturbances', '#e74c3c'],
+  ];
+  const CL = [
+    ['✓', 'High accuracy and precise output', '#27ae60'],
+    ['✓', 'Automatic error correction via feedback', '#27ae60'],
+    ['✓', 'Reduces effect of disturbances', '#27ae60'],
+    ['✓', 'Suitable for precision applications', '#27ae60'],
+    ['✗', 'Complex design and higher cost', '#e74c3c'],
+    ['✗', 'Requires regular maintenance', '#e74c3c'],
+    ['✗', 'Slower due to feedback processing', '#e74c3c'],
+  ];
+
+  const rowH = VH * 0.108;
+  const startY = VH * 0.24;
+
+  OL.forEach((item, i) => {
+    at(() => {
+      const y = startY + i * rowH;
+      const bg = i < 4 ? '#f0fff0' : '#fff5f5';
+      rr(M, VW * 0.05, y - rowH * 0.38, VW * 0.43, rowH * 0.76, px(8), bg, item[2] + '44', px(1.5));
+      txt(M, item[0], VW * 0.07, y, 28, item[2], 'bold');
+      txt(M, item[1], VW * 0.1, y, 22, '#2c3e50', '400');
+    }, d + i * 380);
+  });
+  CL.forEach((item, i) => {
+    at(() => {
+      const y = startY + i * rowH;
+      const bg = i < 4 ? '#f0fff8' : '#fff5f5';
+      rr(M, VW * 0.53, y - rowH * 0.38, VW * 0.43, rowH * 0.76, px(8), bg, item[2] + '44', px(1.5));
+      txt(M, item[0], VW * 0.55, y, 28, item[2], 'bold');
+      txt(M, item[1], VW * 0.58, y, 22, '#2c3e50', '400');
+    }, d + 180 + i * 380);
+  });
+
+  d += Math.max(OL.length, CL.length) * 380 + 400;
+  at(() => {
+    rr(M, VW * 0.08, VH * 0.92, VW * 0.84, VH * 0.062, px(10), '#fffbe6', '#e67e22', px(2));
+    txt(M, 'Choose Open-Loop when speed & cost matter.  Choose Closed-Loop when accuracy & reliability are critical.', VW / 2, VH * 0.951, 21, '#2c3e50', '600', 'center');
+  }, d);
+}
+
+// ─── SLIDE 5: COMPARISON TABLE ────────────────────────────────────────
+function buildS5() {
+  drawBG();
+  at(() => pill(M, 'Open-Loop  vs  Closed-Loop  —  Comparison Table', px(40), VH * 0.08, '#c0392b', '#fff'), 100);
+  let d = 300;
+
+  const rows = [
+    ['Design', 'Easy to design & build', 'More complex design & construction'],
+    ['Performance', 'Depends on calibration', 'Improves due to feedback'],
+    ['Stability', 'Generally more stable', 'Can oscillate if poorly tuned'],
+    ['Optimization', 'Cannot optimize output', 'Easy optimization via feedback'],
+    ['Feedback', 'No feedback present', 'Feedback always present'],
+    ['Maintenance', 'Less maintenance needed', 'Regular maintenance required'],
+    ['Reliability', 'Less reliable', 'More reliable — auto correction'],
+    ['Speed', 'Operates faster', 'Slightly slower response'],
+    ['Cost', 'Simple & economical', 'Complex & expensive install'],
+  ];
+
+  const sx = VW * 0.03, sw = VW * 0.94;
+  const c0 = sw * 0.15, c1 = sw * 0.425, c2 = sw * 0.425;
+  const rh = VH * 0.083, headerY = VH * 0.14;
+
+  // Header row
+  at(() => {
+    rr(M, sx, headerY, c0, rh, 0, '#c0392b', '#c0392b', px(1));
+    rr(M, sx + c0, headerY, c1, rh, 0, '#e67e22', '#e67e22', px(1));
+    rr(M, sx + c0 + c1, headerY, c2, rh, 0, '#2980b9', '#2980b9', px(1));
+    txt(M, 'Parameter', sx + c0 / 2, headerY + rh / 2, 22, '#fff', 'bold', 'center');
+    txt(M, 'Open-Loop', sx + c0 + c1 / 2, headerY + rh / 2, 22, '#fff', 'bold', 'center');
+    txt(M, 'Closed-Loop', sx + c0 + c1 + c2 / 2, headerY + rh / 2, 22, '#fff', 'bold', 'center');
+  }, d); d += 400;
+
+  rows.forEach((r, i) => {
+    at(() => {
+      const ry = headerY + rh + i * rh;
+      const even = i % 2 === 0;
+      rr(M, sx, ry, c0, rh, 0, '#fff3e0', '#e8c060', px(1));
+      rr(M, sx + c0, ry, c1, rh, 0, even ? '#fffde0' : '#fff', '#e8c060', px(1));
+      rr(M, sx + c0 + c1, ry, c2, rh, 0, even ? '#eaf4fb' : '#f5faff', '#acd3f0', px(1));
+      txt(M, r[0], sx + c0 / 2, ry + rh / 2, 20, '#c0392b', 'bold', 'center');
+      // Wrap long text
+      const maxW = c1 - px(16);
+      M.font = `${px(20)}px Segoe UI`; M.fillStyle = '#7f4000';
+      M.textAlign = 'left'; M.textBaseline = 'middle';
+      wrapText(M, r[1], sx + c0 + px(8), ry + rh / 2, maxW, px(20));
+      M.fillStyle = '#1a4a7a';
+      wrapText(M, r[2], sx + c0 + c1 + px(8), ry + rh / 2, maxW, px(20));
+    }, d + i * 320);
+  });
+}
+
+function wrapText(ctx, text, x, y, maxW, lineH) {
+  const words = text.split(' '), lines = [];
+  let line = '';
+  words.forEach(w => {
+    const test = line + (line ? ' ' : '') + w;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
+    else line = test;
+  });
+  lines.push(line);
+  const totalH = lines.length * lineH;
+  lines.forEach((l, i) => ctx.fillText(l, x, y - totalH / 2 + lineH * 0.5 + i * lineH));
+}
+
+// ─── SLIDE 6: SIMULATION ──────────────────────────────────────────────
+function buildS6() {
+  drawBG();
+  at(() => pill(M, 'Interactive Simulation  —  OL vs CL Live Comparison', px(40), VH * 0.07, '#1a7a4a', '#fff'), 100);
+
+  const SX = VW * 0.02, SY = VH * 0.13, SW = VW * 0.96, SH = VH * 0.56;
+  const panW = (SW - px(16)) / 2;
+
+  // Static panel shells
+  at(() => {
+    rr(M, SX, SY, panW, SH, px(12), '#fff8ee', '#e67e22', px(3));
+    rr(M, SX + panW + px(16), SY, panW, SH, px(12), '#f0fbf5', '#27ae60', px(3));
+    txt(M, 'Open-Loop System  — No Feedback', SX + panW / 2, SY + py(22), 22, '#e67e22', 'bold', 'center');
+    txt(M, 'Closed-Loop System  — With Feedback', SX + panW + px(16) + panW / 2, SY + py(22), 22, '#27ae60', 'bold', 'center');
+    // Y-axis labels
+    ['100', '75', '50', '25', '0'].forEach((v, i) => {
+      const yp = SY + py(40) + (SH - py(60)) * i / 4;
+      txt(M, v, SX + px(30), yp, 16, '#aaa', '400', 'right');
+      txt(M, v, SX + panW + px(16) + px(30), yp, 16, '#aaa', '400', 'right');
+    });
+    txt(M, 'System Output', SX + px(14), SY + SH / 2, 16, '#888', '400', 'center', 'middle');
+    txt(M, 'System Output', SX + panW + px(14), SY + SH / 2, 16, '#888', '400', 'center', 'middle');
+  }, 200);
+
+  // Controls panel
+  const ctrlY = SY + SH + py(14);
+  at(() => {
+    rr(M, SX, ctrlY, SW, VH * 0.1, px(10), '#fff8e6', '#e8b84b', px(2));
+    txt(M, 'Disturbance:', SX + px(18), ctrlY + py(30), 20, '#555', '600');
+    txt(M, 'Low', SX + px(110), ctrlY + py(30), 17, '#27ae60', '600');
+    rr(M, SX + px(148), ctrlY + py(22), px(200), py(16), py(8), '#e0e0e0', '#ccc', px(1));
+    txt(M, 'High', SX + px(360), ctrlY + py(30), 17, '#e74c3c', '600');
+    txt(M, 'Setpoint:', SX + px(430), ctrlY + py(30), 20, '#555', '600');
+    rr(M, SX + px(530), ctrlY + py(22), px(180), py(16), py(8), '#e0e0e0', '#ccc', px(1));
+    txt(M, '0 – 100', SX + px(724), ctrlY + py(30), 16, '#888', '400');
+  }, 300);
+
+  // Info bar
+  const infoY = ctrlY + VH * 0.1 + py(6);
+  at(() => {
+    rr(M, SX, infoY, SW, VH * 0.08, px(10), '#eaf4fb', '#2980b9', px(2));
+    txt(M, 'Observe: Open-loop drifts with disturbance — no correction.  Closed-loop locks onto the setpoint automatically.', VW / 2, infoY + VH * 0.04, 22, '#1a5276', '600', 'center');
+  }, 400);
+
+  // ── LIVE SIM LOOP ──
+  let simT = 0, dist = 0.0, setpoint = 55;
+  let olVal = 50, clVal = 50;
+  const olH = [], clH = [];
+  const maxH = 200;
+  let simSeq = 0;
+
+  const SEQ = [
+    { t: 1000, dist: 0.0, sp: 55, msg: 'No disturbance.  Both systems start at 50.  Setpoint = 55.  Closed-loop begins tracking it.' },
+    { t: 6000, dist: 0.4, sp: 55, msg: 'Disturbance added (0.4).  Open-loop drifts — it cannot respond.  Closed-loop corrects back to setpoint.' },
+    { t: 12000, dist: 0.4, sp: 80, msg: 'Setpoint raised to 80.  Closed-loop immediately tracks new target.  Open-loop has absolutely no awareness of the setpoint.' },
+    { t: 18000, dist: 0.75, sp: 80, msg: 'High disturbance (0.75)!  Open-loop is completely chaotic.  Closed-loop resists — feedback keeps it near 80.' },
+    { t: 25000, dist: 0.2, sp: 35, msg: 'Setpoint lowered to 35, disturbance reduced.  Closed-loop snaps down.  Open-loop stays wherever disturbance pushed it.' },
+    { t: 32000, dist: 0.0, sp: 35, msg: 'Disturbance removed.  Closed-loop settles precisely at 35.  Open-loop has permanently drifted — no recovery possible.' },
+  ];
+
+  SEQ.forEach(s => {
+    at(() => {
+      dist = s.dist; setpoint = s.sp;
+      // update sliders
+      const slW = px(200);
+      rr(M, SX + px(148), ctrlY + py(22), slW, py(16), py(8), '#e0e0e0', '#ccc', px(1));
+      rr(M, SX + px(148), ctrlY + py(22), slW * s.dist, py(16), py(8), s.dist > 0.5 ? '#e74c3c' : '#f39c12', null, 0);
+      circ(M, SX + px(148) + slW * s.dist, ctrlY + py(30), px(9), '#fff', s.dist > 0.5 ? '#e74c3c' : '#f39c12', px(2.5));
+      const slW2 = px(180), spPct = (s.sp - 0) / 100;
+      rr(M, SX + px(530), ctrlY + py(22), slW2, py(16), py(8), '#e0e0e0', '#ccc', px(1));
+      rr(M, SX + px(530), ctrlY + py(22), slW2 * spPct, py(16), py(8), '#2980b9', null, 0);
+      circ(M, SX + px(530) + slW2 * spPct, ctrlY + py(30), px(9), '#fff', '#2980b9', px(2.5));
+      txt(M, s.sp + '', SX + px(724), ctrlY + py(30), 16, '#2980b9', 'bold', 'left');
+      // info bar update
+      rr(M, SX, infoY, SW, VH * 0.08, px(10), '#eaf4fb', '#2980b9', px(2));
+      txt(M, s.msg, VW / 2, infoY + VH * 0.04, 21, '#1a5276', '600', 'center');
+    }, s.t);
+  });
+
+  function drawPanel(hist, panX, col, label) {
+    const gx = panX + px(38), gy = SY + py(38), gw = panW - px(48), gh = SH - py(50);
+    rr(M, gx, gy, gw, gh, px(6), '#fafafa', '#ddd', px(1));
+    M.strokeStyle = '#eee'; M.lineWidth = px(1);
+    for (let g = 0; g <= 4; g++) {
+      const gyg = gy + gh * g / 4;
+      M.beginPath(); M.moveTo(gx, gyg); M.lineTo(gx + gw, gyg); M.stroke();
+    }
+    // Setpoint line
+    const spy = gy + gh - (setpoint / 100) * gh;
+    M.strokeStyle = '#2ecc71'; M.lineWidth = px(2); M.setLineDash([px(10), px(6)]);
+    M.beginPath(); M.moveTo(gx, spy); M.lineTo(gx + gw, spy); M.stroke(); M.setLineDash([]);
+    txt(M, 'Target: ' + setpoint, gx + gw - px(70), spy - py(14), 16, '#27ae60', '600');
+
+    if (hist.length > 1) {
+      M.strokeStyle = col; M.lineWidth = px(3); M.lineCap = 'round';
+      M.beginPath();
+      hist.forEach((v, i) => {
+        const hx = gx + (i / maxH) * gw;
+        const hy = gy + gh - (Math.max(0, Math.min(100, v)) / 100) * gh;
+        i === 0 ? M.moveTo(hx, hy) : M.lineTo(hx, hy);
+      });
+      M.stroke();
+      const lv = hist[hist.length - 1];
+      const ly = gy + gh - (Math.max(0, Math.min(100, lv)) / 100) * gh;
+      circ(M, gx + gw - px(8), ly, px(7), col, '#fff', px(2));
+      rr(M, gx + gw - px(68), ly - py(18), px(58), py(26), py(6), col, '#fff', px(2));
+      txt(M, lv.toFixed(1), gx + gw - px(39), ly - py(5), 17, '#fff', 'bold', 'center');
+    }
+
+    // Error badge
+    const errVal = hist.length ? Math.abs(hist[hist.length - 1] - setpoint).toFixed(1) : '–';
+    const errBig = parseFloat(errVal) > 12;
+    rr(M, panX + px(10), SY + SH - py(36), panW - px(20), py(30), py(8), errBig ? '#fdecea' : '#e8f8f5', errBig ? '#e74c3c' : '#27ae60', px(2));
+    txt(M, `Error from target: ${errVal}   |   ${label}`, panX + panW / 2, SY + SH - py(21), 19, errBig ? '#c0392b' : '#1a7a4a', '600', 'center');
+  }
+
+  function simFrame() {
+    simT += 0.04;
+    const d2 = dist * (Math.sin(simT * 1.6) * 0.55 + 0.45) * (Math.random() - 0.48) * 3.5;
+    olVal += d2; olVal = Math.max(4, Math.min(96, olVal));
+    const err = setpoint - clVal;
+    clVal += err * 0.065 + d2 * 0.15 + (Math.random() - 0.5) * 0.3;
+    clVal = Math.max(4, Math.min(96, clVal));
+    olH.push(olVal); if (olH.length > maxH) olH.shift();
+    clH.push(clVal); if (clH.length > maxH) clH.shift();
+
+    // Redraw panels (static headers remain from M canvas setup)
+    rr(M, SX, SY, panW, SH, px(12), '#fff8ee', '#e67e22', px(3));
+    rr(M, SX + panW + px(16), SY, panW, SH, px(12), '#f0fbf5', '#27ae60', px(3));
+    txt(M, 'Open-Loop System  — No Feedback', SX + panW / 2, SY + py(22), 22, '#e67e22', 'bold', 'center');
+    txt(M, 'Closed-Loop System  — With Feedback', SX + panW + px(16) + panW / 2, SY + py(22), 22, '#27ae60', 'bold', 'center');
+    ['100', '75', '50', '25', '0'].forEach((v, i) => {
+      const yp = SY + py(40) + (SH - py(60)) * i / 4;
+      txt(M, v, SX + px(30), yp, 16, '#aaa', '400', 'right');
+      txt(M, v, SX + panW + px(16) + px(30), yp, 16, '#aaa', '400', 'right');
+    });
+    drawPanel(olH, SX, '#e67e22', 'No correction possible');
+    drawPanel(clH, SX + panW + px(16), '#27ae60', 'Feedback auto-correcting');
+    animRAF = requestAnimationFrame(simFrame);
+  }
+  at(() => simFrame(), 600);
+}
+
+// ═══════════════════════════════════════════════════════
+// VOICEOVER SCRIPTS
+// ═══════════════════════════════════════════════════════
+const VO = [
+  "Welcome to this lecture on Control Systems. In this session we study the fundamental classification of control systems into Open-Loop and Closed-Loop types — covering block diagrams, real-world applications, advantages, disadvantages, and a live visual simulation.",
+  "A control system is any system whose behaviour is described by differential equations. It regulates and manages the operation of devices and processes through control loops. The governing differential equation shows that the output y of t is related to the input u of t through constant coefficients. When we can control the output by varying the input through this mathematical relationship, we have a control system. There are two major types — the Open-Loop system which has no feedback, and the Closed-Loop system which continuously feeds the output back to correct errors.",
+  "In an Open-Loop Control System, the signal flows in one direction only — from input, through the controller, through the plant, to the output. The controller generates a control signal u of t based purely on the reference input r of t. The plant receives this signal and produces output c of t. There is absolutely no path for the output to influence the input — the system is completely unaware of what it is producing. A perfect real-world example is a toaster. You set the timer. The heating element runs for that fixed duration. Whether the bread is perfectly toasted, burnt to a crisp, or barely warm — the toaster has no sensor, no feedback, and no ability to correct itself. This simplicity makes open-loop systems low cost and fast, but their inability to detect and correct errors limits them severely.",
+  "In a Closed-Loop Control System, the output is continuously monitored and compared with the desired input at the comparator — shown as the sigma block. The comparator computes the error signal: e of t equals r of t minus c of t. This error is the difference between what we want and what we are actually getting. The controller processes this error and generates control signal u of t to drive the plant. The plant produces output c of t, which is then fed back through the feedback path — the dashed green line — back to the comparator. This closes the loop and enables automatic correction. The air conditioner is a perfect example. The thermostat sensor continuously measures room temperature. If the room is at 25 degrees and you have set 22 degrees, the error is 3 degrees. The controller increases the cooling power until that error reaches zero — automatic, continuous, precise correction.",
+  "Comparing the advantages and disadvantages — Open-Loop offers simple design, low cost, fast operation, and easy maintenance. It is ideal where precision is not critical. However, it provides low accuracy, cannot correct errors automatically, and is easily disrupted by external disturbances. Closed-Loop systems provide high accuracy, automatic error correction through feedback, and resistance to disturbances. They are suitable for precision applications. The trade-off is greater design complexity, higher cost, and the need for regular maintenance. Always choose Open-Loop when simplicity and speed are the priority, and Closed-Loop when accuracy and reliability are what matter.",
+  "This comparison table summarises the nine key differences between the two system types — design complexity, performance, stability, optimization capability, feedback mechanism, maintenance, reliability, speed, and installation cost. Open-Loop wins on simplicity and cost. Closed-Loop wins on accuracy, reliability, and automatic correction. Understanding these trade-offs is essential for selecting the right control system for any engineering application.",
+  "This live simulation demonstrates the fundamental difference between the two systems. The orange graph is the Open-Loop output and the green graph is the Closed-Loop output. Both are plotted against the target setpoint shown as the dashed green line. When disturbance is introduced, the open-loop output drifts away from the target — it has no way to correct itself. The closed-loop system continuously compares its output with the setpoint, computes the error, and drives it back towards zero — staying locked to the target. As the setpoint changes, watch the closed-loop track the new target immediately while the open-loop has no awareness of it whatsoever. The error badges at the bottom of each graph show the real-time error from the target. This is the power of feedback control — and the core reason why most real-world control systems are closed-loop."
+];
+
+// ═══════════════════════════════════════════════════════
+// SLIDE MANAGEMENT
+// ═══════════════════════════════════════════════════════
+const BUILDERS = [buildS0, buildS1, buildS2, buildS3, buildS4, buildS5, buildS6];
+
+function killSlide() {
+  navLock = true;
+  if (animRAF) { cancelAnimationFrame(animRAF); animRAF = null; }
+  slideTimers.forEach(clearTimeout); slideTimers = [];
+  textQueue.length = 0;
+  synth.cancel();
+  document.getElementById('vdot').classList.remove('on');
+  speakPending = null;
+  setTimeout(() => { navLock = false; }, 150);
+}
+
+function redrawCurrent() {
+  killSlide();
+  clearAll();
+  BUILDERS[cur]();
+}
+
+function showSlide(idx) {
+  killSlide();
+  clearAll();
+  cur = Math.max(0, Math.min(TOTAL - 1, idx));
+  document.getElementById('slideNum').textContent = `${cur + 1} / ${TOTAL}`;
+  document.getElementById('progFill').style.width = ((cur + 1) / TOTAL * 100) + '%';
+  BUILDERS[cur]();
+}
+
+function togglePlay() {
+  if (playing) {
+    playing = false;
+    synth.cancel(); speakPending = null;
+    document.getElementById('vdot').classList.remove('on');
+    document.getElementById('playBtn').innerHTML = '&#9654; Play';
+  } else {
+    playing = true;
+    document.getElementById('playBtn').textContent = '⏸ Pause';
+    showSlide(cur);
+    setTimeout(() => speak(VO[cur]), 300);
+  }
+}
+
+function navSlide(dir) {
+  const wasPlaying = playing;
+  killSlide();
+  playing = wasPlaying;
+  document.getElementById('playBtn').innerHTML = playing ? '⏸ Pause' : '&#9654; Play';
+  cur = Math.max(0, Math.min(TOTAL - 1, cur + dir));
+  showSlide(cur);
+  if (playing) setTimeout(() => speak(VO[cur]), 300);
+}
+
+function seekBar(e) {
+  const pct = e.offsetX / e.currentTarget.offsetWidth;
+  const idx = Math.max(0, Math.min(TOTAL - 1, Math.floor(pct * TOTAL)));
+  const wasPlaying = playing;
+  killSlide();
+  playing = wasPlaying;
+  cur = idx;
+  showSlide(cur);
+  if (playing) setTimeout(() => speak(VO[cur]), 300);
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+resize();
+showSlide(0);
+// Pre-load voices
+if (synth.getVoices().length > 0) voiceReady = true;
+</script>
+</body>
+</html>
